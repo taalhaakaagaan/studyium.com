@@ -1,0 +1,20 @@
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+
+  # Standard Directory Index - CRITICAL for trailingSlash: true
+  DirectoryIndex index.html
+
+  # Allow access to existing files and directories
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+
+  # Fallback for 404 errors
+  RewriteRule ^ /404.html [L]
+</IfModule>
+
+# Enable CORS for API if needed
+<IfModule mod_headers.c>
+  Header set Access-Control-Allow-Origin "*"
+</IfModule>

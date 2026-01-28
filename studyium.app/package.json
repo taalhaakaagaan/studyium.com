@@ -1,0 +1,74 @@
+{
+  "name": "studyium.app",
+  "version": "0.1.0",
+  "private": true,
+  "main": "main/main.js",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "electron-dev": "concurrently -k \"npm run dev\" \"wait-on http://localhost:3000 && ELECTRON_START_URL=http://localhost:3000 electron .\"",
+    "electron-build": "next build && electron-builder"
+  },
+  "build": {
+    "appId": "com.studyium.app",
+    "productName": "Studyium",
+    "files": [
+      "out/**/*",
+      "main/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb",
+        "rpm"
+      ],
+      "category": "Education"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "public/favicon.ico"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "public/favicon.ico"
+    }
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "dotenv": "^17.2.3",
+    "framer-motion": "^12.27.2",
+    "lucide-react": "^0.562.0",
+    "mysql2": "^3.16.1",
+    "next": "16.1.4",
+    "nodemailer": "^7.0.12",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "tailwind-merge": "^3.4.0",
+    "zustand": "^5.0.10"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/mysql": "^2.15.27",
+    "@types/node": "^20",
+    "@types/nodemailer": "^7.0.5",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "concurrently": "^9.2.1",
+    "electron": "^40.0.0",
+    "electron-builder": "^26.4.0",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.4",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "wait-on": "^9.0.3"
+  }
+}

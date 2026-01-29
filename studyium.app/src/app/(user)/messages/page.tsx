@@ -19,18 +19,24 @@ export default function StudentMessagesPage() {
     // Fetch Contacts (Teachers/Admins)
     useEffect(() => {
         const init = async () => {
-            // Assuming chatAPI.getContacts() exists and returns { contacts: [...] }
-            // If this fails, user might see empty list. 
-            // Logic in main.js "db:get-dm-contacts" exists.
             const res = await chatAPI.getContacts();
             if (res.success) {
                 setContacts(res.contacts || []);
-                setFilteredContacts(res.contacts || []);
+                // If user is searching, filter might apply, but usually we want to see new messages.
+                // We depend on server sort.
+                if (!search) {
+                    setFilteredContacts(res.contacts || []);
+                }
             }
             setLoading(false);
         };
         init();
-    }, []);
+
+        const interval = setInterval(init, 10000); // Poll contacts every 10s
+        return () => clearInterval(interval);
+    }, [search]); // Re-init if search changes? No, init ignores search state in query but server respects param? 
+    // Actually getContacts() in auth.ts doesn't pass search. So it returns "Recent 50".
+    // Client side filter handles search. Polling updates base list.
 
     // Filter contacts
     useEffect(() => {
@@ -120,7 +126,7 @@ export default function StudentMessagesPage() {
     return (
         <div className="flex h-[calc(100vh-100px)] border rounded-xl overflow-hidden shadow-sm bg-card">
             {/* Sidebar */}
-            <div className="w-80 border-r bg-muted/20 flex flex-col">
+            <div className="w-80 shrink-0 border-r bg-muted/20 flex flex-col">
                 <div className="p-4 border-b space-y-3">
                     <div className="font-semibold text-sm uppercase tracking-wide text-muted-foreground">Direct Messages</div>
                     <div className="relative">
@@ -150,12 +156,21 @@ export default function StudentMessagesPage() {
                                 <UserIcon className="h-5 w-5" />
                             </div>
                             <div className="flex-1 min-w-0">
-                                <div className="font-medium truncate">{c.name}</div>
+                                <div className="flex items-center justify-between">
+                                    <div className="font-medium truncate">{c.name}</div>
+                                    {c.unread_count > 0 && (
+                                        <span className="flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white shadow-sm ring-1 ring-white/20">
+                                            {c.unread_count}
+                                        </span>
+                                    )}
+                                </div>
                                 <div className={cn("text-xs truncate flex items-center gap-1", activeContact?.id === c.id ? "opacity-80" : "text-muted-foreground")}>
                                     {c.role === 'teacher' ? (
                                         <span className="bg-indigo-500/10 text-indigo-500 px-1 rounded text-[10px]">Teacher</span>
-                                    ) : (
+                                    ) : c.role === 'admin' ? (
                                         <span className="bg-gray-500/10 text-gray-500 px-1 rounded text-[10px]">Admin</span>
+                                    ) : (
+                                        <span className="bg-muted text-muted-foreground px-1 rounded text-[10px] capitalize">{c.role}</span>
                                     )}
                                     <span className="opacity-50">• {c.role}</span>
                                 </div>

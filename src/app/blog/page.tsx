@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { Navbar } from "@/components/navbar";
+
 import Link from "next/link";
 import { Calendar } from "lucide-react";
 
@@ -16,7 +16,7 @@ export default function BlogPage() {
 
     return (
         <div className="min-h-screen bg-background text-foreground">
-            <Navbar />
+
             <main className="container mx-auto px-4 py-24">
                 <h1 className="text-4xl font-bold mb-8">Blog</h1>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -32,7 +32,9 @@ export default function BlogPage() {
                                 </div>
                                 <h2 className="text-xl font-bold mb-2">{post.title}</h2>
                                 <p className="text-muted-foreground text-sm line-clamp-3 mb-4">{post.excerpt}</p>
-                                <button className="text-primary font-medium hover:underline">Devamını Oku →</button>
+                                <Link href={`/blog/detail?slug=${post.slug}`} className="text-primary font-medium hover:underline inline-flex items-center gap-1">
+                                    Devamını Oku →
+                                </Link>
                             </div>
                         </article>
                     ))}

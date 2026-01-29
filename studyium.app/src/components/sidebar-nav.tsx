@@ -45,7 +45,7 @@ export function SidebarNav({ items }: SidebarNavProps) {
                 // const isGroups = item.label === "Groups"; // If we separate group counts
 
                 return (
-                    <Link
+                    <a
                         key={item.href}
                         href={item.href}
                         className={cn(
@@ -63,7 +63,7 @@ export function SidebarNav({ items }: SidebarNavProps) {
                                 {counts.dm}
                             </span>
                         )}
-                    </Link>
+                    </a>
                 );
             })}
         </nav>

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
 import { ModeToggle } from "@/components/mode-toggle";
-import { User, LogOut, Menu } from "lucide-react";
+import { User, LogOut, Menu, Download } from "lucide-react";
 import { useState } from "react";
 
 export function Navbar({ transparent = false }: { transparent?: boolean }) {
@@ -23,6 +23,9 @@ export function Navbar({ transparent = false }: { transparent?: boolean }) {
                     <Link href="/tutors" className="text-sm font-medium hover:text-primary transition-colors">Özel Ders</Link>
                     <Link href="/features" className="text-sm font-medium hover:text-primary transition-colors">Özellikler</Link>
                     <Link href="/blog" className="text-sm font-medium hover:text-primary transition-colors">Blog</Link>
+                    <Link href="/download" className="text-sm font-medium hover:text-primary transition-colors flex items-center gap-1">
+                        <Download className="w-4 h-4" /> App
+                    </Link>
                 </nav>
 
                 {/* Desktop User Actions */}
@@ -71,6 +74,9 @@ export function Navbar({ transparent = false }: { transparent?: boolean }) {
                             </Link>
                             <Link href="/blog" className="flex items-center justify-between text-base font-medium p-3 hover:bg-muted/50 rounded-lg transition-colors" onClick={() => setMobileMenuOpen(false)}>
                                 <span>Blog</span>
+                            </Link>
+                            <Link href="/download" className="flex items-center justify-between text-base font-medium p-3 hover:bg-muted/50 rounded-lg transition-colors" onClick={() => setMobileMenuOpen(false)}>
+                                <span className="flex items-center gap-2"><Download className="w-4 h-4" /> App İndir</span>
                             </Link>
                         </div>
 

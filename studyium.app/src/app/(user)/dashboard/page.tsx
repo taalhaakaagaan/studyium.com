@@ -44,13 +44,39 @@ export default function UserDashboard() {
                 // "saatler geldiği zaman" -> when time comes.
                 const currentFn = res.schedule.find((s: any) => {
                     if (s.day_of_week !== today) return false;
-                    const start = parseInt(s.start_time.split(':')[0]);
-                    const end = parseInt(s.end_time.split(':')[0]);
-                    return nowHour >= start && nowHour < end; // Is currently happening
+                    const [startH, startM] = s.start_time.split(':').map(Number);
+                    const [endH, endM] = s.end_time.split(':').map(Number);
+
+                    const nowMinutes = nowHour * 60 + new Date().getMinutes();
+                    const startTotal = startH * 60 + (startM || 0);
+                    const endTotal = endH * 60 + (endM || 0);
+
+                    return nowMinutes >= startTotal && nowMinutes < endTotal; // Is currently happening
                 });
 
-                if (currentFn && currentFn.is_live) {
-                    setLiveSession(currentFn);
+                if (currentFn) {
+                    // Check if there is an active broadcast for this teacher
+                    const liveRes = await (window as any).electron.invoke('db:get-active-broadcasts');
+                    let isLive = false;
+
+                    if (liveRes.success && liveRes.broadcasts) {
+                        // Check if this teacher is live
+                        // Try both teacher_id and tutor_id from schedule item
+                        const teacherId = currentFn.teacher_id || currentFn.tutor_id;
+                        const broadcast = liveRes.broadcasts.find((b: any) => b.teacher_id == teacherId);
+
+                        if (broadcast) {
+                            currentFn.note = broadcast.topic || currentFn.note;
+                            currentFn.is_live = true;
+                            isLive = true;
+                        }
+                    }
+
+                    if (isLive) {
+                        setLiveSession(currentFn);
+                    } else {
+                        setLiveSession(null);
+                    }
                 } else {
                     setLiveSession(null);
                 }

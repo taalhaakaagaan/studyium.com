@@ -11,7 +11,7 @@ export function Footer() {
                 {/* Producer Info */}
                 <div className="text-center md:text-left">
                     <p className="font-bold text-lg bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
-                        by fathertkt
+                        Studyium
                     </p>
                     <p className="text-sm text-muted-foreground">
                         &copy; {new Date().getFullYear()} Studyium. Tüm hakları saklıdır.

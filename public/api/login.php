@@ -15,10 +15,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // Admin Check
     if ($email === 'studyium.17@gmail.com' && $password === 'HelloWorld!21') {
+        // Secure Session Start for Admin
+        if (session_status() === PHP_SESSION_NONE) {
+            ini_set('session.cookie_httponly', 1);
+            ini_set('session.cookie_same_site', 'Lax'); // Or None if cross-origin needed, but Lax is better for safety
+            ini_set('session.gc_maxlifetime', 3600);
+            session_start();
+        }
+        session_regenerate_id(true);
+        $_SESSION['role'] = 'admin';
+        $_SESSION['email'] = $email;
+        $_SESSION['user_id'] = 0; // Admin ID
+
         echo json_encode([
             "message" => "Admin girişi başarılı",
             "role" => "admin",
-            "redirectUrl" => "/admin" // Note: This will need special handling in static site (probably admin/index.html)
+            "redirectUrl" => "/admin"
         ]);
         exit;
     }
@@ -37,50 +49,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($result->num_rows > 0) {
         $user = $result->fetch_assoc();
         
-        if ($user['is_verified'] == 0) {
-            // Generate new token
-            $new_token = rand(100000, 999999);
-            
-            // Update DB
-            $update_stmt = $conn->prepare("UPDATE user_data SET verification_token = ? WHERE id = ?");
-            // Assuming $user['id'] is not selected in the SELECT query above, I need to check if 'id' is in the SELECT.
-            // The previous SELECT was: "SELECT name, surname, email FROM user_data ..."
-            // I need to update the SELECT query to include 'id' first.
-            
-            // But wait, I can do this in two steps or simply fetch ID.
-            // Let's first fix the SELECT query in a separate edit or assume I will fix it.
-            // I will assume I need to fetch ID. 
-            // Actually, in the ReplacementContent I cannot change lines outside the target scope easily if they are far away.
-            // The SELECT is at line 32. 
-            // I should update the SELECT first or in the same block if possible.
-            // Since I am replacing a block inside the "if", I can't easily change the SELECT above.
-            // But I can fetch the ID again or just trust email.
-            // Better practice: Update the SELECT at line 32 to include ID.
-            
-            // Wait, I will use email for update since email is unique.
-            $update_stmt = $conn->prepare("UPDATE user_data SET verification_token = ? WHERE email = ?");
-            $update_stmt->bind_param("ss", $new_token, $email);
-            $update_stmt->execute();
-            
-            // Send Email
-            require_once 'mail.php';
-            send_verification_email($email, $user['name'], $new_token, 'login');
-
-            http_response_code(403);
-            echo json_encode([
-                "message" => "Doğrulama kodu yenilendi ve e-posta adresinize gönderildi. Lütfen kodu giriniz.",
-                "require_verification" => true,
-                "email" => $email
-            ]);
-            exit;
+        // Start Session if not already
+        if (session_status() === PHP_SESSION_NONE) {
+             ini_set('session.cookie_httponly', 1);
+             session_start();
         }
+        
+        $_SESSION['user_id'] = $user['id']; 
+        $_SESSION['email'] = $user['email'];
+        $_SESSION['role'] = $user['role'] ?? 'user';
 
         echo json_encode([
             "message" => "Giriş başarılı",
-            "role" => "user",
+            "role" => $user['role'],
             "user" => $user,
             "redirectUrl" => "/"
         ]);
+
     } else {
         http_response_code(401);
         echo json_encode(["message" => "Hatalı email veya şifre."]);

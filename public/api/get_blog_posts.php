@@ -28,11 +28,21 @@ if ($check->fetch_assoc()['count'] == 0) {
     }
 }
 
-$result = $conn->query("SELECT * FROM blog_posts ORDER BY created_at DESC");
-$posts = [];
-while ($row = $result->fetch_assoc()) {
-    $posts[] = $row;
-}
+$slug = $_GET['slug'] ?? null;
 
-echo json_encode($posts);
+if ($slug) {
+    $stmt = $conn->prepare("SELECT * FROM blog_posts WHERE slug = ?");
+    $stmt->bind_param("s", $slug);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $post = $result->fetch_assoc();
+    echo json_encode($post); // Return single object or null
+} else {
+    $result = $conn->query("SELECT * FROM blog_posts ORDER BY created_at DESC");
+    $posts = [];
+    while ($row = $result->fetch_assoc()) {
+        $posts[] = $row;
+    }
+    echo json_encode($posts);
+}
 ?>

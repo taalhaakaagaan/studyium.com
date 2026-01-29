@@ -28,6 +28,7 @@ export const metadata = {
 };
 
 import { Footer } from "@/components/footer";
+import { UpdateNotification } from "@/components/update-notification";
 
 import VisitorTracker from "@/components/visitor-tracker";
 
@@ -47,6 +48,7 @@ export default function RootLayout({
         >
           <CartProvider>
             <VisitorTracker />
+            <UpdateNotification />
             <div className="flex flex-col min-h-screen">
               <LayoutWrapper>
                 {children}

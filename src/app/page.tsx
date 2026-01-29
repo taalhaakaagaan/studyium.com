@@ -7,6 +7,7 @@ import { Navbar } from "@/components/navbar";
 import { PanelSystem } from "@/components/panel-system";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import AdBanner from "@/components/AdBanner";
 
 type Tutor = {
   id: number;
@@ -45,14 +46,14 @@ export default function Home() {
 
       {/* Hero Section */}
       <section className="relative flex min-h-screen items-center justify-center pt-20 overflow-hidden">
-        {/* Abstract Background */}
-        <div className="absolute inset-0 z-0">
-          <div className="absolute top-[-10%] left-[-10%] h-[500px] w-[500px] rounded-full bg-primary/20 blur-[100px] animate-pulse" />
-          <div className="absolute bottom-[-10%] right-[-10%] h-[600px] w-[600px] rounded-full bg-secondary/20 blur-[120px] animate-pulse delay-1000" />
+        {/* Abstract Background - Optimized for iOS */}
+        <div className="absolute inset-0 z-0 opacity-50">
+          <div className="absolute top-[-10%] left-[-10%] h-[500px] w-[500px] rounded-full bg-primary/20 blur-[80px]" />
+          <div className="absolute bottom-[-10%] right-[-10%] h-[600px] w-[600px] rounded-full bg-secondary/20 blur-[100px]" />
         </div>
 
         <div className="container relative z-10 mx-auto px-4 text-center">
-          <div className="animate-in fade-in slide-in-from-bottom-8 duration-1000">
+          <div className="animate-in fade-in slide-in-from-bottom-8 duration-700">
             <h1 className="bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-5xl font-extrabold tracking-tight text-transparent sm:text-7xl mb-6">
               Hayalinizdeki Üniversiteyi <br />
               <span className="bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">Studyium</span> ile Kazanın
@@ -86,6 +87,18 @@ export default function Home() {
                 className="inline-flex h-12 items-center justify-center rounded-full bg-foreground text-background px-8 text-sm font-medium transition-transform hover:scale-105"
               >
                 Eğitmenleri İncele
+              </Link>
+              <Link
+                href="/ders-notlari"
+                className="inline-flex h-12 items-center justify-center rounded-full border border-border bg-background/50 px-8 text-sm font-medium backdrop-blur transition-colors hover:bg-accent hover:text-accent-foreground"
+              >
+                Ders Notları
+              </Link>
+              <Link
+                href="/yks-puan-hesaplama"
+                className="inline-flex h-12 items-center justify-center rounded-full border border-border bg-background/50 px-8 text-sm font-medium backdrop-blur transition-colors hover:bg-accent hover:text-accent-foreground"
+              >
+                YKS Puan Hesaplama
               </Link>
               <Link
                 href="/how-it-works"
@@ -131,6 +144,10 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Advertisement Banner */}
+      <AdBanner />
+
     </div>
+
   );
 }

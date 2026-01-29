@@ -24,6 +24,9 @@ export default function StudentGroupsPage() {
             setLoading(false);
         };
         init();
+
+        const interval = setInterval(init, 10000);
+        return () => clearInterval(interval);
     }, []);
 
     // Fetch Messages for Active Group
@@ -108,7 +111,7 @@ export default function StudentGroupsPage() {
     return (
         <div className="flex h-[calc(100vh-100px)] border rounded-xl overflow-hidden shadow-sm bg-card">
             {/* Sidebar */}
-            <div className="w-64 border-r bg-muted/20 flex flex-col">
+            <div className="w-64 shrink-0 border-r bg-muted/20 flex flex-col">
                 <div className="p-4 border-b font-semibold text-sm uppercase tracking-wide text-muted-foreground">Class Groups</div>
                 <div className="flex-1 overflow-y-auto p-2 space-y-1">
                     {groups.map(g => (

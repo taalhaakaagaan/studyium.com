@@ -34,10 +34,10 @@ export default function AdminLayout({
             {/* Sidebar */}
             <aside className="hidden w-64 flex-col border-r bg-card md:flex">
                 <div className="flex h-14 items-center border-b px-4 lg:h-[60px] lg:px-6">
-                    <Link href="/" className="flex items-center gap-2 font-semibold">
+                    <a href="/" className="flex items-center gap-2 font-semibold">
                         <ShieldCheck className="h-6 w-6 text-red-600" />
                         <span className="">Admin Panel</span>
-                    </Link>
+                    </a>
                 </div>
                 <div className="flex-1">
                     <SidebarNav items={sidebarItems} />

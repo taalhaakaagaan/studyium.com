@@ -127,8 +127,14 @@ export default function AdminDashboard() {
     // Editing State
     const [editingTutor, setEditingTutor] = useState<Tutor | null>(null);
 
+    // Note Editor State
+    const [selectedNoteTopic, setSelectedNoteTopic] = useState<Topic | null>(null);
+    const [noteContent, setNoteContent] = useState('');
+    const [noteTitle, setNoteTitle] = useState('');
+
     // Debug State
     const [fetchError, setFetchError] = useState<string | null>(null);
+    const [debugInfo, setDebugInfo] = useState<any>(null);
 
     useEffect(() => {
         fetchStats();
@@ -136,15 +142,24 @@ export default function AdminDashboard() {
         fetchLessons();
         fetchBlogs();
         fetchBookings();
-        fetchBookings();
         fetchTopics();
         fetchPayments();
     }, []);
 
     // Fetchers
     const fetchStats = async () => {
-        const res = await fetch('/api/admin/get_stats.php');
-        if (res.ok) setStats(await res.json());
+        try {
+            const res = await fetch('/api/admin/get_stats.php');
+            if (res.ok) {
+                const data = await res.json();
+                setStats(data);
+                if (data.debug) setDebugInfo(data.debug);
+            } else {
+                setFetchError("Stats fetch failed: " + res.status);
+            }
+        } catch (e: any) {
+            setFetchError("Stats fetch error: " + e.message);
+        }
     };
 
     const fetchTutors = async () => {
@@ -431,6 +446,10 @@ export default function AdminDashboard() {
                             className={`w-full text-left p-3 rounded-lg flex items-center gap-3 ${activeTab === 'bookings' ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'}`}>
                             <CalendarCheck className="h-5 w-5" /> Randevular
                         </button>
+                        <button onClick={() => { setActiveTab('notes'); setIsSidebarOpen(false); }}
+                            className={`w-full text-left p-3 rounded-lg flex items-center gap-3 ${activeTab === 'notes' ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'}`}>
+                            <BookOpen className="h-5 w-5" /> Ders Notları
+                        </button>
                         <button onClick={() => { setActiveTab('blog'); setIsSidebarOpen(false); }}
                             className={`w-full text-left p-3 rounded-lg flex items-center gap-3 ${activeTab === 'blog' ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'}`}>
                             <FileText className="h-5 w-5" /> Blog Yönetimi
@@ -500,21 +519,200 @@ export default function AdminDashboard() {
                                     </div>
                                 </div>
                             </div>
+
+                            {/* DEBUG CONSOLE - Visible only if stats are suspicious or requested */}
+                            <div className="mt-8 p-4 bg-muted/50 rounded-xl border border-destructive/20">
+                                <h3 className="text-lg font-bold text-destructive mb-2">Sistem Durumu (Debug)</h3>
+                                {fetchError && <div className="text-red-500 font-bold mb-2">{fetchError}</div>}
+                                {debugInfo ? (
+                                    <div className="space-y-2 text-xs font-mono">
+                                        <div>Database: <span className="font-bold">{debugInfo.db_name}</span></div>
+                                        <div>Status: <span className="text-green-600 font-bold">{debugInfo.connection_status}</span></div>
+                                        <div className="grid grid-cols-2 gap-4 mt-2">
+                                            <div>
+                                                <div className="font-bold underline mb-1">Tablo Kontrolü</div>
+                                                {Object.entries(debugInfo.tables_found || {}).map(([table, exists]: [string, any]) => (
+                                                    <div key={table} className={exists ? 'text-green-600' : 'text-red-600'}>
+                                                        {table}: {exists ? 'MEVCUT' : 'YOK'}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            <div>
+                                                <div className="font-bold underline mb-1">Ham Satır Sayıları</div>
+                                                {Object.entries(debugInfo.raw_counts || {}).map(([table, count]: [string, any]) => (
+                                                    <div key={table}>
+                                                        {table}: {count}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="text-muted-foreground">Veri yükleniyor veya debug bilgisi yok...</div>
+                                )}
+                            </div>
                         </div>
 
+                    )}
+
+
+
+                    {/* Notes Management Tab */}
+                    {activeTab === 'notes' && (
+                        <div>
+                            <h2 className="text-3xl font-bold mb-8">Ders Notu Yönetimi</h2>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                {/* Selector Column */}
+                                <div className="md:col-span-1 space-y-4">
+                                    <h3 className="font-bold">Konu Seçimi</h3>
+                                    <div className="border border-border rounded-xl p-4 h-[600px] overflow-y-auto bg-card">
+                                        {Object.entries(groupedTopics).map(([lessonName, topics]) => (
+                                            <div key={lessonName} className="mb-4">
+                                                <h4 className="font-semibold text-sm bg-muted p-2 rounded mb-2 sticky top-0">{lessonName}</h4>
+                                                <div className="space-y-1">
+                                                    {topics.map(t => (
+                                                        <button
+                                                            key={t.id}
+                                                            onClick={async () => {
+                                                                setSelectedNoteTopic(t);
+                                                                setNoteTitle(t.name);
+                                                                setNoteContent(''); // Reset content/file indicator if needed
+                                                                // In PDF mode, we might want to check if a PDF exists, but GET API needs update relative to task.
+                                                                // For now, assuming simply uploading new overwrites or sets.
+                                                            }}
+                                                            className={`w-full text-left text-sm p-2 rounded truncate transition-colors ${selectedNoteTopic?.id === t.id ? 'bg-primary text-primary-foreground' : 'hover:bg-primary/10'}`}
+                                                        >
+                                                            {t.name}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Editor Column */}
+                                <div className="md:col-span-2 space-y-4">
+                                    <h3 className="font-bold flex justify-between items-center">
+                                        İçerik Editörü (PDF)
+                                        {selectedNoteTopic && <span className="text-sm font-normal text-muted-foreground">{selectedNoteTopic.lesson_name} / {selectedNoteTopic.name}</span>}
+                                    </h3>
+
+                                    {selectedNoteTopic ? (
+                                        <div className="bg-card border border-border rounded-xl p-4 h-[600px] flex flex-col gap-4">
+                                            <div>
+                                                <label className="text-sm font-bold mb-1 block">Başlık</label>
+                                                <input
+                                                    value={noteTitle}
+                                                    onChange={(e) => setNoteTitle(e.target.value)}
+                                                    className="w-full p-2 border border-border rounded bg-background"
+                                                />
+                                            </div>
+                                            <div className="flex-1 flex flex-col justify-center items-center border-2 border-dashed border-border rounded-xl bg-muted/20">
+                                                <label className="text-sm font-bold mb-4 block text-center">PDF Dosyası Yükle</label>
+                                                <input
+                                                    type="file"
+                                                    id="note-pdf-upload"
+                                                    accept="application/pdf"
+                                                    className="block w-full max-w-xs text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90"
+                                                />
+                                                <p className="text-xs text-muted-foreground mt-4">
+                                                    Not: İçerik artık sadece PDF dosyasından oluşmaktadır.
+                                                </p>
+                                            </div>
+                                            <div className="flex justify-end gap-2">
+                                                <button
+                                                    onClick={async () => {
+                                                        const fileInput = document.getElementById('note-pdf-upload') as HTMLInputElement;
+                                                        const file = fileInput?.files?.[0];
+
+                                                        const formData = new FormData();
+                                                        formData.append('topicId', String(selectedNoteTopic.id));
+                                                        formData.append('title', noteTitle);
+                                                        // Passing empty content as requested, strictly PDF
+                                                        formData.append('content', '');
+                                                        if (file) {
+                                                            formData.append('pdf_file', file);
+                                                        }
+
+                                                        try {
+                                                            const res = await fetch('/api/admin/save_note.php', {
+                                                                method: 'POST',
+                                                                body: formData
+                                                            });
+                                                            const data = await res.json();
+                                                            if (data.message && (data.message.includes('eklendi') || data.message.includes('güncellendi'))) {
+                                                                alert('Not kaydedildi.');
+                                                            } else if (data.id) {
+                                                                // Some API variations return id on success
+                                                                alert('Not kaydedildi.');
+                                                            } else {
+                                                                alert('İşlem tamamlandı: ' + (data.message || 'Başarılı'));
+                                                            }
+                                                        } catch (e: any) {
+                                                            alert('Hata: ' + e.message);
+                                                        }
+                                                    }}
+                                                    className="bg-primary text-primary-foreground px-6 py-2 rounded font-bold hover:bg-primary/90"
+                                                >
+                                                    <Save className="h-4 w-4 inline mr-2" /> Kaydet
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="bg-card border border-border rounded-xl p-6 h-[600px] flex items-center justify-center text-muted-foreground">
+                                            Soldan bir konu seçiniz.
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
                     )}
 
                     {/* Blog Tab */}
                     {activeTab === 'blog' && (
                         <div>
                             <h2 className="text-3xl font-bold mb-8">Blog Yönetimi</h2>
-                            <form onSubmit={handleAddBlog} className="bg-card border border-border p-6 rounded-xl mb-8 space-y-4">
-                                <h3 className="text-lg font-bold">Yeni Yazı Ekle</h3>
+                            <form onSubmit={async (e) => {
+                                e.preventDefault();
+                                const fileInput = document.getElementById('blog-pdf-upload') as HTMLInputElement;
+                                const file = fileInput?.files?.[0];
+
+                                const formData = new FormData();
+                                formData.append('action', 'add');
+                                formData.append('title', newBlog.title);
+                                formData.append('category', newBlog.category);
+                                formData.append('excerpt', ''); // Excerpt removal if strict PDF, or keep as optional text? Removed as requested "PDF only" imply strict content.
+                                if (file) {
+                                    formData.append('pdf_file', file);
+                                } else {
+                                    alert("Lütfen bir PDF dosyası seçin.");
+                                    return;
+                                }
+
+                                const res = await fetch('/api/admin/manage_blog.php', {
+                                    method: 'POST',
+                                    body: formData
+                                });
+
+                                if (res.ok) {
+                                    alert("Blog yazısı eklendi!");
+                                    setNewBlog({ title: '', category: '', excerpt: '' });
+                                    if (fileInput) fileInput.value = '';
+                                    fetchBlogs();
+                                } else {
+                                    alert("Hata oluştu.");
+                                }
+                            }} className="bg-card border border-border p-6 rounded-xl mb-8 space-y-4">
+                                <h3 className="text-lg font-bold">Yeni Yazı Ekle (PDF)</h3>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <input value={newBlog.title} onChange={e => setNewBlog({ ...newBlog, title: e.target.value })} placeholder="Başlık" className="w-full p-2 border rounded bg-background" required />
                                     <input value={newBlog.category} onChange={e => setNewBlog({ ...newBlog, category: e.target.value })} placeholder="Kategori" className="w-full p-2 border rounded bg-background" required />
                                 </div>
-                                <textarea value={newBlog.excerpt} onChange={e => setNewBlog({ ...newBlog, excerpt: e.target.value })} placeholder="Kısa Açıklama" className="w-full p-2 border rounded bg-background h-24" required />
+                                <div className="border-2 border-dashed border-border rounded-xl p-6 bg-muted/20 text-center">
+                                    <label className="block mb-2 font-semibold">Blog PDF Dosyası</label>
+                                    <input type="file" id="blog-pdf-upload" accept="application/pdf" className="mx-auto block text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90" required />
+                                </div>
                                 <button type="submit" className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90 transition-colors w-full md:w-auto justify-center">
                                     <Plus className="h-4 w-4" /> Ekle
                                 </button>

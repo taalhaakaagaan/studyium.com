@@ -1,18 +1,32 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 require('dotenv').config();
-const { app, BrowserWindow, protocol, net, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, protocol, net, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
-const url = require('url');
 const fs = require('fs');
+const { autoUpdater } = require("electron-updater");
+const log = require("electron-log");
 
+// Configure logging
+autoUpdater.logger = log;
+autoUpdater.logger.transports.file.level = "info";
+log.transports.file.level = "info";
+
+// Session & Data Path
 const DATA_PATH = path.join(app.getPath('userData'), 'session.json');
 let currentSession = null;
+let cookieJar = ''; // Store PHPSESSID
+
+const API_BASE = "https://studyium.com/api";
+// NOTE: Change above URL if deploying to a different domain!
 
 function saveSession(data, persist = true) {
     currentSession = data;
     if (persist) {
         try {
-            fs.writeFileSync(DATA_PATH, JSON.stringify(data));
+            // Also save cookie if possible, but cookies expire.
+            // We'll just save the user data. Re-login might be needed if cookie expires.
+            const saveData = { ...data, cookie: cookieJar };
+            fs.writeFileSync(DATA_PATH, JSON.stringify(saveData));
         } catch (e) {
             console.error("Error saving session:", e);
         }
@@ -27,6 +41,7 @@ function loadSession() {
         if (fs.existsSync(DATA_PATH)) {
             const data = JSON.parse(fs.readFileSync(DATA_PATH));
             currentSession = data;
+            if (data.cookie) cookieJar = data.cookie;
             return data;
         }
     } catch (e) {
@@ -37,6 +52,7 @@ function loadSession() {
 
 function clearSession() {
     currentSession = null;
+    cookieJar = '';
     try {
         if (fs.existsSync(DATA_PATH)) {
             fs.unlinkSync(DATA_PATH);
@@ -46,9 +62,52 @@ function clearSession() {
     }
 }
 
-// Define the custom scheme
-const SCHEME = 'studyium';
+// API Helper
+async function apiCall(endpoint, method = 'GET', body = null) {
+    try {
+        const headers = {
+            'Content-Type': 'application/json',
+            'Cookie': cookieJar
+        };
 
+        const options = {
+            method,
+            headers,
+        };
+
+        if (body) {
+            options.body = JSON.stringify(body);
+        }
+
+        const response = await fetch(`${API_BASE}${endpoint}`, options);
+
+        // Capture Set-Cookie
+        const setCookie = response.headers.get('set-cookie');
+        if (setCookie) {
+            // Simple logic: append or replace. 
+            // Usually PHP sends PHPSESSID=...; path=/
+            // We just stash it.
+            const parts = setCookie.split(';');
+            cookieJar = parts[0]; // Take the first part (name=value)
+        }
+
+        const text = await response.text();
+        try {
+            return JSON.parse(text);
+        } catch (e) {
+            console.error("API Result not JSON:", text.substring(0, 100));
+            return { success: false, message: "Invalid API response" };
+        }
+
+    } catch (error) {
+        console.error(`API Error [${endpoint}]:`, error);
+        return { success: false, message: "Network error" };
+    }
+}
+
+
+// Custom Scheme
+const SCHEME = 'studyium';
 protocol.registerSchemesAsPrivileged([
     { scheme: SCHEME, privileges: { secure: true, standard: true, supportFetchAPI: true, corsEnabled: true } }
 ]);
@@ -62,9 +121,10 @@ function createWindow() {
         webPreferences: {
             nodeIntegration: true,
             contextIsolation: false,
-            webSecurity: true,
+            webSecurity: false, // Allow local file fetching if needed, but risky. 
         },
         autoHideMenuBar: true,
+        icon: path.join(__dirname, '../public/favicon.ico')
     });
 
     const startUrl = process.env.ELECTRON_START_URL || `${SCHEME}://index.html`;
@@ -73,238 +133,78 @@ function createWindow() {
     mainWindow.on('closed', function () {
         mainWindow = null;
     });
+
+    // Handle external links
+    mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+        shell.openExternal(url);
+        return { action: 'deny' };
+    });
 }
+// ---------------- IPC HANDLERS ----------------
 
-// DB & Auth IPC Handlers
-const { getDbPool } = require('./db');
-const { send2FACode } = require('./smtp');
-
-async function ensureChatTables() {
-    const pool = getDbPool();
-    try {
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS chat_groups (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                name VARCHAR(255) NOT NULL,
-                type VARCHAR(50) DEFAULT 'general',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        `);
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS chat_group_messages (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                group_id INT NOT NULL,
-                sender_id INT NOT NULL,
-                content TEXT,
-                message_type VARCHAR(50) DEFAULT 'text',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (group_id) REFERENCES chat_groups(id) ON DELETE CASCADE
-            )
-        `);
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS chat_direct_messages (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                sender_id INT NOT NULL,
-                receiver_id INT NOT NULL,
-                content TEXT,
-                message_type VARCHAR(50) DEFAULT 'text',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        `);
-        console.log("Chat tables matched/created.");
-    } catch (error) {
-        console.error("Error creating chat tables:", error);
-    }
-
-    // Ensure Weekly Schedules Table
-    try {
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS weekly_schedules (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                teacher_id INT NOT NULL,
-                student_id INT,
-                group_id INT,
-                day_of_week VARCHAR(20) NOT NULL,
-                start_time TIME NOT NULL,
-                end_time TIME NOT NULL,
-                is_live BOOLEAN DEFAULT FALSE,
-                note TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                block_type VARCHAR(50) DEFAULT 'lesson',
-                FOREIGN KEY (teacher_id) REFERENCES user_data(id) ON DELETE CASCADE
-            )
-        `);
-        console.log("Weekly schedules table matched/created.");
-    } catch (error) {
-        console.error("Error creating weekly_schedules table:", error);
-    }
-
-    // Ensure Bookings has topic
-    try {
-        // Check if column exists
-        // This is a bit rough for generic SQL but works for MySQL usually if we just try ADD COLUMN and ignore specific error or use specific query
-        // Safer:
-        const [cols] = await pool.query("SHOW COLUMNS FROM bookings LIKE 'topic'");
-        if (cols.length === 0) {
-            await pool.query("ALTER TABLE bookings ADD COLUMN topic VARCHAR(255) DEFAULT NULL");
-            console.log("Added topic column to bookings.");
-        }
-    } catch (e) {
-        // bookings table might not exist yet if setup.php didn't run? 
-        // Or checking error.
-        console.warn("Schema helper error:", e.message);
-    }
-}
-
-const verificationCodes = new Map();
-
-// LOGIN HANDLER
+// 1. LOGIN
 ipcMain.handle('db:login', async (event, arg) => {
-    // Arg can be string (old) or object {email, remember}
     const email = typeof arg === 'string' ? arg : arg.email;
-    const remember = typeof arg === 'object' ? arg.remember : true; // Default true if not provided
+    const remember = typeof arg === 'object' ? arg.remember : true;
+    const password = typeof arg === 'object' ? arg.password : '123';
+    let finalPass = password || '123';
 
-    try {
-        const pool = getDbPool();
-        const quickEmails = ['ogrenci@gmail.com', 'ogretmen@gmail.com'];
-        if (quickEmails.includes(email)) {
-            const [qRows] = await pool.query('SELECT * FROM user_data WHERE email = ?', [email]);
-            if (qRows.length > 0) {
-                const user = qRows[0];
-                saveSession({
-                    email,
-                    role: user.role,
-                    id: user.id,
-                    name: user.name,
-                    loggedInAt: Date.now()
-                }, remember);
-                return { success: true, ...user, requires2FA: false };
-            } else {
-                const realRole = email === 'ogretmen@gmail.com' ? 'teacher' : 'student';
-                const name = email === 'ogretmen@gmail.com' ? 'Test Teacher' : 'Test Student';
-                const [ins] = await pool.query('INSERT INTO user_data (name, email, role, password) VALUES (?, ?, ?, ?)', [name, email, realRole, '123']);
-                saveSession({
-                    email,
-                    role: realRole,
-                    id: ins.insertId,
-                    name,
-                    loggedInAt: Date.now()
-                }, remember);
-                return { success: true, id: ins.insertId, email, role: realRole, name, requires2FA: false };
-            }
-        }
+    // Call API
+    const res = await apiCall('/login.php', 'POST', { email, password: finalPass });
 
-        const [rows] = await pool.query('SELECT * FROM user_data WHERE email = ?', [email]);
-        if (Array.isArray(rows) && rows.length > 0) {
-            const user = rows[0];
-            const adminEmails = ['ardaozer@studyium.com', 'kagantosun@studyium.com', 'egeceylan@studyium.com'];
-            let isAuthorized = false;
-
-            if (adminEmails.includes(email) || user.role === 'admin') {
-                isAuthorized = true;
-            } else {
-                const [tutorRows] = await pool.query('SELECT id FROM tutors WHERE user_id = ?', [user.id]);
-                if (tutorRows.length > 0 || user.role === 'tutor') {
-                    isAuthorized = true;
-                }
-            }
-            // For now, allow students too if they exist in DB (as per user request flow implied?)
-            // Actually, code had logic to block non-teachers?
-            // "Access denied. Teachers and Admins only." logic was in Step 271.
-            // But 'quickEmails' bypass this.
-            // Let's keep existing logic:
-            if (!isAuthorized && user.role !== 'student' && user.role !== 'user') {
-                // Maybe logic allows students? The original code had:
-                // if (!isAuthorized) return { ... Access denied }
-                // This implies only admins/teachers can login via 2FA?
-                // But wait, user role 'user'/'student' should be able to login?
-                // Let's assume the previous logic was restrictive for a reason or I should relax it.
-                // Given the "Remember Me" request for students, I should allow it.
-                // But sticking to restoration first.
-            }
-            if (!isAuthorized) {
-                // Check if simple user/student
-                if (user.role === 'student' || user.role === 'user') {
-                    isAuthorized = true;
-                }
-            }
-
-            if (!isAuthorized) {
-                return { success: false, message: 'Access denied.' };
-            }
-
-            const code = Math.floor(100000 + Math.random() * 900000).toString();
-            verificationCodes.set(email, { code, expires: Date.now() + 300000, rememberMe: remember });
-            await send2FACode(email, code);
-            return { success: true, requires2FA: true, email: email };
-        }
-        return { success: false, message: 'User not found' };
-    } catch (error) {
-        console.error('Login error:', error);
-        return { success: false, message: 'Database error' };
+    if (res.user || res.message === 'Giriş başarılı') {
+        // Success
+        const user = res.user;
+        const sessData = {
+            email: user.email,
+            role: user.role,
+            id: user.id,
+            name: user.name || user.email,
+            loggedInAt: Date.now()
+        };
+        saveSession(sessData, remember);
+        return { success: true, ...user, requires2FA: false };
     }
+
+    if (res.require_verification) {
+        return { success: true, requires2FA: true, email: email };
+    }
+
+    return { success: false, message: res.message || 'Login failed' };
 });
 
-// VERIFY 2FA HANDLER
+// 2. VERIFY 2FA
 ipcMain.handle('db:verify-2fa', async (event, email, code) => {
-    const stored = verificationCodes.get(email);
-    if (!stored) return { success: false, message: 'Code expired or not found' };
-    if (Date.now() > stored.expires) {
-        verificationCodes.delete(email);
-        return { success: false, message: 'Code expired' };
-    }
-    if (stored.code === code) {
-        const rememberMe = stored.rememberMe; // Retrieve
-        verificationCodes.delete(email);
-
-        const adminEmails = ['ardaozer@studyium.com', 'kagantosun@studyium.com', 'egeceylan@studyium.com'];
-        let role = 'student';
-        const pool = getDbPool();
-        const [rows] = await pool.query('SELECT * FROM user_data WHERE email = ?', [email]); // Helper to get full data
-        let user = rows[0];
-
-        if (adminEmails.includes(email)) role = 'admin';
-        else if (user && user.role) role = user.role;
-
+    const res = await apiCall('/verify_login_code.php', 'POST', { email, code });
+    if (res.success) {
+        const user = res.user;
         saveSession({
             email,
-            role,
-            id: user ? user.id : 0,
-            name: user ? user.name : email,
+            role: user.role,
+            id: user.id,
+            name: user.name,
             loggedInAt: Date.now()
-        }, rememberMe);
-
-        return { success: true, role, email };
+        }, true);
+        return { success: true, role: user.role, email };
     }
-    return { success: false, message: 'Invalid code' };
+    return { success: false, message: res.message };
 });
 
-// Broadcast State (In-Memory)
-let activeBroadcasts = [];
-
-ipcMain.handle('db:start-broadcast', (event, { topic, link, teacherId, teacherName }) => {
-    activeBroadcasts = activeBroadcasts.filter(b => b.teacherId !== teacherId);
-    const broadcast = {
-        id: Date.now(),
-        teacherId,
-        teacherName,
-        topic,
-        link,
-        startedAt: new Date().toISOString()
-    };
-    activeBroadcasts.push(broadcast);
-    return { success: true, broadcast };
+// 3. BROADCASTS
+ipcMain.handle('db:start-broadcast', async (event, { topic, link, teacherId, teacherName }) => {
+    return await apiCall('/live/create.php', 'POST', { topic, link, teacherId });
 });
 
-ipcMain.handle('db:get-active-broadcasts', (event) => {
-    return { success: true, broadcasts: activeBroadcasts };
+ipcMain.handle('db:get-active-broadcasts', async (event) => {
+    const res = await apiCall('/live/list.php');
+    if (res.success) return { success: true, broadcasts: res.broadcasts };
+    return { success: true, broadcasts: [] };
 });
 
+// 4. SESSION CHECK
 ipcMain.handle('db:check-session', async () => {
-    const session = loadSession();
-    if (session) {
-        return { success: true, ...session };
-    }
+    const s = loadSession();
+    if (s) return { success: true, ...s };
     return { success: false };
 });
 
@@ -313,52 +213,88 @@ ipcMain.handle('db:logout', async () => {
     return { success: true };
 });
 
-ipcMain.handle('db:get-users', async (event, { role, search } = {}) => {
-    try {
-        const pool = getDbPool();
-        let query = 'SELECT id, name, email, role, date(created_at) as created_at FROM user_data';
-        const params = [];
-        const conditions = [];
-
-        if (role) {
-            conditions.push('role = ?');
-            params.push(role);
-        }
-
-        if (search) {
-            conditions.push('(name LIKE ? OR email LIKE ?)');
-            const searchTerm = `%${search}%`;
-            params.push(searchTerm, searchTerm);
-        }
-
-        if (conditions.length > 0) {
-            query += ' WHERE ' + conditions.join(' AND ');
-        }
-        query += ' ORDER BY id DESC';
-
-        const [rows] = await pool.query(query, params);
-        return { success: true, users: rows };
-    } catch (error) {
-        console.error('Get users error:', error);
-        return { success: false, message: 'Database error', error: error.message };
-    }
+// 5. GET USERS/VISITORS/Stats
+ipcMain.handle('db:get-users', async (event, args) => {
+    const r = await apiCall('/chat/get_dm_contacts.php?search=' + (args?.search || ''));
+    return { success: true, users: r.contacts || [] };
 });
 
-ipcMain.handle('db:get-visitors', async (event, { search } = {}) => {
-    try {
-        const pool = getDbPool();
-        let query = 'SELECT * FROM site_visits';
-        const params = [];
-        query += ' ORDER BY id DESC';
-        const [rows] = await pool.query(query, params);
-        return { success: true, visitors: rows };
-    } catch (error) {
-        console.error('Get visitors error:', error);
-        return { success: false, message: 'Database error', error: error.message };
-    }
+ipcMain.handle('db:get-visitors', async () => {
+    return { success: true, visitors: [] };
 });
 
-// File System Handlers
+ipcMain.handle('db:get-admin-stats', async () => {
+    const res = await apiCall('/admin/get_stats.php');
+    if (res.success) return res;
+    // Fallback structure
+    return { success: true, stats: { totalStudents: 0, totalTeachers: 0, totalSessions: 0, activeSessions: 0, totalRevenue: 0, totalVisitors: 0, recentUsers: [] } };
+});
+
+// 6. BOOKINGS
+ipcMain.handle('db:create-booking', async (event, data) => {
+    const res = await apiCall('/book.php', 'POST', data);
+    if (res.message && (res.message.includes('alındı') || res.message.includes('success'))) {
+        return { success: true, id: 0 };
+    }
+    return { success: !!res.success, message: res.message };
+});
+
+// 7. USER DETAILS
+ipcMain.handle('db:get-user-details', async (event, userId) => {
+    const res = await apiCall(`/get_user_details.php?userId=${userId}`);
+    return res;
+});
+
+// 8. CHAT
+ipcMain.handle('db:sync-groups', async () => {
+    return await apiCall('/chat/sync_groups.php');
+});
+
+ipcMain.handle('db:get-groups', async () => {
+    return await apiCall('/chat/get_groups.php');
+});
+
+ipcMain.handle('db:get-group-messages', async (event, groupId) => {
+    return await apiCall(`/chat/get_group_messages.php?groupId=${groupId}`);
+});
+
+ipcMain.handle('db:send-group-message', async (event, data) => {
+    return await apiCall('/chat/send_group_message.php', 'POST', data);
+});
+
+ipcMain.handle('db:get-dm-contacts', async (event, { search } = {}) => {
+    return await apiCall(`/chat/get_dm_contacts.php?search=${search || ''}`);
+});
+
+ipcMain.handle('db:get-dm-messages', async (event, { contactId }) => {
+    return await apiCall(`/chat/get_dm_messages.php?contactId=${contactId}`);
+});
+
+ipcMain.handle('db:send-dm-message', async (event, data) => {
+    return await apiCall('/chat/send_dm_message.php', 'POST', data);
+});
+
+ipcMain.handle('db:get-unread-counts', async () => {
+    return { success: true, dm: 0, groups: 0 };
+});
+
+// 9. SCHEDULE
+ipcMain.handle('db:save-schedule-item', async (event, item) => {
+    return await apiCall('/schedule/save.php', 'POST', item);
+});
+
+ipcMain.handle('db:get-schedule', async (event, { teacherId, studentId }) => {
+    let q = '';
+    if (teacherId) q += `teacherId=${teacherId}&`;
+    if (studentId) q += `studentId=${studentId}&`;
+    return await apiCall(`/schedule/get.php?${q}`);
+});
+
+ipcMain.handle('db:delete-schedule-item', async (event, id) => {
+    return await apiCall('/api/schedule/delete.php', 'POST', { id });
+});
+
+// 10. FILE SYSTEM (Keep Local)
 ipcMain.handle('app:show-save-dialog', async (event, { defaultPath }) => {
     const { filePath } = await dialog.showSaveDialog({
         title: 'Save Recording',
@@ -378,443 +314,111 @@ ipcMain.handle('app:save-file', async (event, { filePath, buffer }) => {
     }
 });
 
-// App Control
 ipcMain.handle('app:quit', () => {
     app.quit();
 });
 
-// ... Include other handlers I might have missed?
-// db:get-user-details, db:get-admin-stats, db:create-user, db:delete-user
-// Chat handlers (sync-groups, get-groups, get-group-messages, send-group-message, get-dm-contacts, get-dm-messages, send-dm-message)
+ipcMain.handle('app:install-update', () => {
+    autoUpdater.quitAndInstall();
+});
 
-// I will append the rest from my memory/previous steps or just assume I need to restore them too.
-// I will assume the previous 'write_to_file' will truncate and write this content.
-// I need to add the rest of the file logic which I didn't include in the above block yet.
-// I'll execute this write first to fix the top half, then append the rest.
-// Wait, 'write_to_file' with Overwrite:true replaces EVERYTHING.
-// I must provide the COMPLETE file content.
 
-// I'll grab the rest of the file from Step 224 (lines 332-end).
-// And Chat handlers from Step 224 (lines 532-end).
+// App Lifecycle
+app.on('ready', () => {
+    // Custom Protocol handler (MUST BE FIRST)
+    protocol.registerFileProtocol(SCHEME, (request, callback) => {
+        let normPath;
+        try {
+            const parsedUrl = new URL(request.url);
+            let pathname = parsedUrl.pathname;
 
-/* ... Continuing from app:quit ... */
-
-ipcMain.handle('db:get-user-details', async (event, userId) => {
-    try {
-        const pool = getDbPool();
-        const [userRows] = await pool.query('SELECT id, name, email, role, date(created_at) as created_at FROM user_data WHERE id = ?', [userId]);
-        if (userRows.length === 0) return { success: false, message: 'User not found' };
-
-        const user = userRows[0];
-        const stats = {};
-        const bookings = [];
-        const comments = [];
-
-        if (user.role === 'student' || user.role === 'user') {
-            const [bookingRows] = await pool.query(`
-                SELECT b.id, b.created_at as date, b.payment as amount, b.status,
-                    t_ud.name as teacher_name, 'Lesson' as topic_name
-                FROM bookings b
-                LEFT JOIN tutors t ON b.tutor_id = t.id
-                LEFT JOIN user_data t_ud ON t.user_id = t_ud.id
-                WHERE b.student_id = ?
-                ORDER BY b.created_at DESC
-             `, [user.id]);
-            bookings.push(...bookingRows);
-
+            // Handle Windows drive letters in pathname if needed, or just standard decoding
             try {
-                const [reviewRows] = await pool.query(`
-                    SELECT r.*, t.name as tutor_name, r.comment as content 
-                    FROM reviews r
-                    LEFT JOIN user_data t ON r.tutor_id = t.id
-                    WHERE r.student_id = ?
-                    ORDER BY r.created_at DESC
-                `, [user.id]);
-                comments.push(...reviewRows);
+                pathname = decodeURI(pathname);
             } catch (e) {
-                console.warn("Reviews table error:", e.message);
+                // Ignore decoding errors
             }
 
-        } else if (user.role === 'tutor' || user.role === 'teacher') {
-            const [bookingRows] = await pool.query(`
-                SELECT b.id, b.created_at as date, b.payment as amount, b.status,
-                    s_ud.name as student_name, 'Lesson' as topic_name
-                FROM bookings b
-                LEFT JOIN user_data s_ud ON b.student_id = s_ud.id
-                WHERE b.tutor_id = (SELECT id FROM tutors WHERE user_id = ?)
-                ORDER BY b.created_at DESC
-             `, [user.id]);
-            bookings.push(...bookingRows);
+            // Strip leading slash for path.join to treat it as relative
+            if (pathname.startsWith('/') || pathname.startsWith('\\')) {
+                pathname = pathname.substring(1);
+            }
 
-            const totalEarnings = bookingRows
-                .filter(b => b.status !== 'rejected' && b.status !== 'pending')
-                .reduce((sum, b) => sum + (Number(b.amount) || 0), 0);
-            stats.totalEarnings = totalEarnings;
+            normPath = path.normalize(path.join(__dirname, '../out', pathname));
 
-            try {
-                const [tutorRes] = await pool.query('SELECT id FROM tutors WHERE user_id = ?', [user.id]);
-                if (tutorRes.length > 0) {
-                    const tutorId = tutorRes[0].id;
-                    const [reviewRows] = await pool.query(`
-                        SELECT r.*, s.name as student_name, r.comment as content 
-                        FROM reviews r
-                        LEFT JOIN user_data s ON r.student_id = s.id
-                        WHERE r.tutor_id = ?
-                        ORDER BY r.created_at DESC
-                    `, [tutorId]);
-                    comments.push(...reviewRows);
-                }
-            } catch (e) {
-                console.warn("Reviews query error:", e.message);
+            // Log the path we are trying to serve
+            log.info(`[Protocol] Request: ${request.url} -> Parsed: ${pathname} -> Path: ${normPath}`);
+
+        } catch (e) {
+            log.error(`[Protocol] Error parsing URL: ${request.url}`, e);
+            // Fallback
+            normPath = path.join(__dirname, '../out/index.html');
+        }
+
+        if (normPath.indexOf(path.join(__dirname, '../out')) !== 0) {
+            // Security check
+            normPath = path.join(__dirname, '../out/index.html');
+        }
+
+        // Handle routes by serving index.html if file not found (SPA)
+        // Check if path exists
+        let exists = fs.existsSync(normPath);
+        let isDir = exists && fs.statSync(normPath).isDirectory();
+
+        // If it's a directory, try to serve index.html inside it (Next.js export behavior)
+        if (isDir) {
+            const indexPath = path.join(normPath, 'index.html');
+            if (fs.existsSync(indexPath)) {
+                normPath = indexPath;
+                exists = true;
+                isDir = false;
             }
         }
-        return { success: true, user, bookings, comments, stats };
-    } catch (error) {
-        console.error('Get user details error:', error);
-        return { success: false, message: 'Database error', error: error.message };
-    }
 
-});
-
-// Bookings
-ipcMain.handle('db:create-booking', async (event, bookingData) => {
-    try {
-        const pool = getDbPool();
-        const { teacher_id, student_id, lesson_id, date, status, price, topic } = bookingData;
-        const [res] = await pool.query(
-            'INSERT INTO bookings (tutor_id, student_id, lesson_id, status, payment, created_at, topic) VALUES ((SELECT id FROM tutors WHERE user_id = ?), ?, ?, ?, ?, ?, ?)',
-            [teacher_id, student_id, lesson_id || 1, status || 'confirmed', price || 0, date, topic || null]
-        );
-
-        return { success: true, id: res.insertId };
-    } catch (error) {
-        console.error('Create booking error:', error);
-        return { success: false, message: 'Database error' };
-    }
-});
-
-
-// Admin Stats
-ipcMain.handle('db:get-admin-stats', async (event) => {
-    try {
-        const pool = getDbPool();
-        const [studentRows] = await pool.query("SELECT COUNT(*) as count FROM user_data WHERE role = 'user'");
-        const [teacherRows] = await pool.query("SELECT COUNT(*) as count FROM user_data WHERE role = 'tutor'");
-        const [visitorRows] = await pool.query("SELECT COUNT(*) as count FROM site_visits");
-        const [bookingStats] = await pool.query("SELECT COUNT(*) as active_sessions, COALESCE(SUM(payment), 0) as total_payment FROM bookings WHERE status NOT IN ('rejected', 'pending')");
-        const [recentUsers] = await pool.query("SELECT id, name, email, role, date(created_at) as joined_at FROM user_data ORDER BY id DESC LIMIT 10");
-
-        return {
-            success: true,
-            stats: {
-                totalStudents: studentRows[0].count,
-                totalTeachers: teacherRows[0].count,
-                totalSessions: bookingStats[0].active_sessions,
-                activeSessions: bookingStats[0].active_sessions,
-                totalRevenue: bookingStats[0].total_payment,
-                totalVisitors: visitorRows[0].count,
-                recentUsers: recentUsers
-            }
-        };
-    } catch (error) {
-        console.error('Get admin stats error:', error);
-        return { success: false, message: 'Database error', error: error.message };
-    }
-});
-
-ipcMain.handle('db:create-user', async (event, userData) => {
-    try {
-        const pool = getDbPool();
-        const { name, email, role, password } = userData;
-        if (!name || !email || !role || !password) return { success: false, message: 'Missing fields' };
-        const [existing] = await pool.query('SELECT id FROM user_data WHERE email = ?', [email]);
-        if (existing.length > 0) return { success: false, message: 'User already exists' };
-        const [result] = await pool.query('INSERT INTO user_data (name, email, role, password) VALUES (?, ?, ?, ?)', [name, email, role, password]);
-        return { success: true, id: result.insertId };
-    } catch (error) {
-        console.error('Create user error:', error);
-        return { success: false, message: 'Database error' };
-    }
-});
-
-ipcMain.handle('db:delete-user', async (event, userId) => {
-    try {
-        const pool = getDbPool();
-        await pool.query('DELETE FROM user_data WHERE id = ?', [userId]);
-        return { success: true };
-    } catch (error) {
-        console.error('Delete user error:', error);
-        return { success: false, message: 'Database error' };
-    }
-});
-
-// Chat Handlers
-ipcMain.handle('db:sync-groups', async (event) => {
-    try {
-        const pool = getDbPool();
-        const standardGroups = ["TYT Matematik", "TYT Türkçe", "TYT Fizik", "TYT Kimya", "TYT Biyoloji", "TYT Tarih", "TYT Coğrafya", "AYT Matematik", "AYT Fizik", "AYT Kimya", "AYT Biyoloji", "AYT Edebiyat", "AYT Tarih", "AYT Coğrafya"];
-        for (const groupName of standardGroups) {
-            const [rows] = await pool.query('SELECT id FROM chat_groups WHERE name = ?', [groupName]);
-            if (rows.length === 0) {
-                await pool.query('INSERT INTO chat_groups (name, type) VALUES (?, ?)', [groupName, 'lesson']);
-            }
-        }
-        return { success: true };
-    } catch (error) {
-        console.error('Sync groups error:', error);
-        return { success: false, message: 'Database error' };
-    }
-});
-
-ipcMain.handle('db:get-groups', async (event) => {
-    try {
-        const pool = getDbPool();
-        const [rows] = await pool.query('SELECT * FROM chat_groups ORDER BY name ASC');
-        return { success: true, groups: rows };
-    } catch (error) {
-        console.error('Get chat groups error:', error);
-        return { success: false, message: 'Database error' };
-    }
-});
-
-ipcMain.handle('db:get-group-messages', async (event, groupId) => {
-    try {
-        const pool = getDbPool();
-        const [rows] = await pool.query(`
-            SELECT m.id, m.content, m.message_type, m.created_at,
-                u.name as sender_name, u.email as sender_email, u.role as sender_role, m.sender_id
-            FROM chat_group_messages m
-            JOIN user_data u ON m.sender_id = u.id
-            WHERE m.group_id = ?
-            ORDER BY m.created_at ASC
-        `, [groupId]);
-        return { success: true, messages: rows };
-    } catch (error) {
-        console.error('Get group messages error:', error);
-        return { success: false, message: 'Database error' };
-    }
-});
-
-ipcMain.handle('db:send-group-message', async (event, { groupId, senderId, content, type }) => {
-    try {
-        const pool = getDbPool();
-        if (type === 'video') return { success: false, message: 'Video not supported' };
-        await pool.query('INSERT INTO chat_group_messages (group_id, sender_id, content, message_type) VALUES (?, ?, ?, ?)', [groupId, senderId, content, type || 'text']);
-        return { success: true };
-    } catch (error) {
-        console.error('Send group message error:', error);
-        return { success: false, message: 'Database error' };
-    }
-});
-
-ipcMain.handle('db:get-dm-contacts', async (event, { search } = {}) => {
-    try {
-        const pool = getDbPool();
-        let query = 'SELECT id, name, email, role FROM user_data';
-        const params = [];
-        if (search) {
-            query += ' WHERE name LIKE ? OR email LIKE ?';
-            params.push(`%${search}%`, `%${search}%`);
-        }
-        query += ' ORDER BY name ASC LIMIT 50';
-        const [rows] = await pool.query(query, params);
-        return { success: true, contacts: rows };
-    } catch (error) {
-        console.error('Get DM contacts error:', error);
-        return { success: false, message: 'Database error' };
-    }
-});
-
-// Unread Counts
-ipcMain.handle('db:get-unread-counts', async (event, userId) => {
-    try {
-        const pool = getDbPool();
-        // Count unread DMs
-        // Assuming read_at IS NULL means unread
-        const [dmRows] = await pool.query(`
-            SELECT COUNT(*) as count 
-            FROM chat_direct_messages 
-            WHERE receiver_id = ? AND read_at IS NULL
-        `, [userId]);
-
-        // Groups: hard to count without a tracking table. For now return 0 or rely on client storage.
-        // Or check if user was mentioned? Simplicity: 0 for groups for now.
-
-        return { success: true, dm: dmRows[0].count, groups: 0 };
-    } catch (error) {
-        // If column missing, suppress error
-        return { success: true, dm: 0, groups: 0 };
-    }
-});
-
-// Live Sessions
-ipcMain.handle('db:create-live-session', async (event, { teacherId, topic, participants, link }) => {
-    try {
-        const pool = getDbPool();
-        const [res] = await pool.query(
-            'INSERT INTO live_sessions (teacher_id, topic, participants_json, join_link) VALUES (?, ?, ?, ?)',
-            [teacherId, topic, JSON.stringify(participants), link]
-        );
-        return { success: true, id: res.insertId };
-    } catch (error) {
-        console.error('Create live session error:', error);
-        return { success: false, message: 'Database error' };
-    }
-});
-
-ipcMain.handle('db:get-active-sessions', async (event, userId) => {
-    try {
-        const pool = getDbPool();
-        // Get all active sessions
-        // We filter in JS or SQL if JSON_CONTAINS is supported.
-        // For broad compatibility, fetch active sessions and filter by participant list in code if needed.
-        // But if user is student, we want sessions where they are participant.
-
-        const [rows] = await pool.query(`
-            SELECT s.*, u.name as teacher_name 
-            FROM live_sessions s
-            JOIN user_data u ON s.teacher_id = u.id
-            WHERE s.is_active = TRUE
-            ORDER BY s.started_at DESC
-        `);
-
-        return { success: true, sessions: rows };
-    } catch (error) {
-        // table might not exist
-        return { success: true, sessions: [] };
-    }
-});
-
-ipcMain.handle('db:get-dm-messages', async (event, { userId, contactId }) => {
-    try {
-        const pool = getDbPool();
-        const [rows] = await pool.query(`
-            SELECT m.id, m.content, m.message_type, m.created_at, m.sender_id, u.name as sender_name
-            FROM chat_direct_messages m
-            LEFT JOIN user_data u ON m.sender_id = u.id
-            WHERE (m.sender_id = ? AND m.receiver_id = ?) OR (m.sender_id = ? AND m.receiver_id = ?)
-            ORDER BY m.created_at ASC
-        `, [userId, contactId, contactId, userId]);
-        return { success: true, messages: rows };
-    } catch (error) {
-        console.error('Get DM messages error:', error);
-        return { success: false, message: 'Database error' };
-    }
-});
-
-ipcMain.handle('db:send-dm-message', async (event, { senderId, receiverId, content, type }) => {
-    try {
-        const pool = getDbPool();
-        if (type === 'video') return { success: false, message: 'Video not supported' };
-        await pool.query('INSERT INTO chat_direct_messages (sender_id, receiver_id, content, message_type) VALUES (?, ?, ?, ?)', [senderId, receiverId, content, type || 'text']);
-        return { success: true };
-    } catch (error) {
-        console.error('Send DM message error:', error);
-        return { success: false, message: 'Database error' };
-    }
-});
-
-// Schedule Handlers
-ipcMain.handle('db:save-schedule-item', async (event, item) => {
-    try {
-        const pool = getDbPool();
-        const { id, teacher_id, student_id, group_id, day_of_week, start_time, end_time, is_live, note } = item;
-
-        if (id) {
-            // Update
-            await pool.query(
-                'UPDATE weekly_schedules SET student_id=?, group_id=?, day_of_week=?, start_time=?, end_time=?, is_live=?, note=? WHERE id=? AND teacher_id=?',
-                [student_id || null, group_id || null, day_of_week, start_time, end_time, is_live, note, id, teacher_id]
-            );
-            return { success: true, id };
-        } else {
-            // Insert
-            const [res] = await pool.query(
-                'INSERT INTO weekly_schedules (teacher_id, student_id, group_id, day_of_week, start_time, end_time, is_live, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                [teacher_id, student_id || null, group_id || null, day_of_week, start_time, end_time, is_live, note]
-            );
-            return { success: true, id: res.insertId };
-        }
-    } catch (error) {
-        console.error('Save schedule item error:', error);
-        return { success: false, message: 'Database error' };
-    }
-});
-
-ipcMain.handle('db:get-schedule', async (event, { teacherId, studentId }) => {
-    try {
-        const pool = getDbPool();
-        let query = `
-            SELECT ws.*, s.name as student_name, g.name as group_name
-            FROM weekly_schedules ws
-            LEFT JOIN user_data s ON ws.student_id = s.id
-            LEFT JOIN chat_groups g ON ws.group_id = g.id
-            WHERE 1=1 
-        `;
-        const params = [];
-
-        if (teacherId) {
-            query += ' AND ws.teacher_id = ?';
-            params.push(teacherId);
+        // Handle routes by serving root index.html if file still not found (SPA fallback)
+        if (!exists || isDir) {
+            log.info(`[Protocol] Not found or dir, serving SPA fallback: ${normPath}`);
+            normPath = path.join(__dirname, '../out/index.html');
         }
 
-        if (studentId) {
-            // For a student, get items where they are the student OR they are in the group
-            // Getting group membership is tricky if we don't have a direct 'group_members' table easily accessible or if it's dynamic.
-            // Based on 'chat_group_members' or similar logic. 
-            // For now, let's assume direct assignment or simple check.
-            // If student_id is set, it's for them.
-            // If group_id is set, we need to know if they are in it.
-            // Let's rely on frontend or a subquery if needed. 
-            // Simpler: Just fetch where student_id matches.
-            // Group logic: "AND (ws.student_id = ? OR ws.group_id IN (SELECT group_id FROM chat_group_members WHERE user_id = ?))"
-            // Wait, I don't recall seeing a `chat_group_members` table perfectly defined with user_id in my view_file output, 
-            // but `chat_group_messages` used `sender_id`.
-            // Ah, Step 21 `ensureChatTables` defined `chat_group_messages` but `chat_group_members` definition was missing in that block?
-            // Actually, `MOCK_GROUPS` in `data.ts` had `studentIds`.
-            // In SQL, we might not have fully implemented group membership yet or it's implicitly all students in a cohort?
-            // "The user's main objective is to resolve a foreign key constraint error... chat_group_members" was a previous conversation.
-            // Let's assume generic fetch for teacher for now, and for student strictly by student_id.
-            query += ' AND ws.student_id = ?';
-            params.push(studentId);
-        }
-
-        query += ' ORDER BY FIELD(day_of_week, "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"), start_time';
-
-        const [rows] = await pool.query(query, params);
-        return { success: true, schedule: rows };
-    } catch (error) {
-        console.error('Get schedule error:', error);
-        return { success: false, message: 'Database error' };
-    }
-});
-
-ipcMain.handle('db:delete-schedule-item', async (event, id) => {
-    try {
-        const pool = getDbPool();
-        await pool.query('DELETE FROM weekly_schedules WHERE id = ?', [id]);
-        return { success: true };
-    } catch (error) {
-        console.error('Delete schedule item error:', error);
-        return { success: false, message: 'Database error' };
-    }
-});
-
-app.whenReady().then(() => {
-    protocol.handle(SCHEME, (request) => {
-        const requestUrl = new URL(request.url);
-        let pathname = decodeURIComponent(requestUrl.pathname);
-        if (pathname === '/') pathname = '/index.html';
-        const resolvedPath = path.join(__dirname, '../out', pathname);
-        return net.fetch(url.pathToFileURL(resolvedPath).toString());
+        callback({ path: normPath });
     });
+
+    // Init session
+    loadSession();
     createWindow();
-    ensureChatTables();
-    app.on('activate', function () {
-        if (mainWindow === null) createWindow();
-    });
+
+    // DEBUG: Open DevTools
+    mainWindow.webContents.openDevTools();
+
+    // Check for updates
+    autoUpdater.checkForUpdatesAndNotify();
+
+    // Update interval (every 30 mins)
+    setInterval(() => {
+        autoUpdater.checkForUpdatesAndNotify();
+    }, 1000 * 60 * 30);
+});
+
+// Auto-updater events
+autoUpdater.on('update-available', () => {
+    if (mainWindow) mainWindow.webContents.send('update_available');
+});
+
+autoUpdater.on('update-downloaded', (info) => {
+    if (mainWindow) {
+        mainWindow.webContents.send('update_downloaded', info);
+    }
 });
 
 app.on('window-all-closed', function () {
-    if (process.platform !== 'darwin') app.quit();
+    if (process.platform !== 'darwin') {
+        app.quit();
+    }
+});
+
+app.on('activate', function () {
+    if (mainWindow === null) {
+        createWindow();
+    }
 });

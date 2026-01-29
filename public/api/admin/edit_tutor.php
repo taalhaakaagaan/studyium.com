@@ -21,8 +21,8 @@ if (!$id) {
 $account_name = $data['account_name'] ?? '';
 $iban = $data['iban'] ?? '';
 
-$stmt = $conn->prepare("UPDATE tutors SET bio = ?, subjects = ?, course_details = ?, account_name = ?, iban = ? WHERE id = ?");
-$stmt->bind_param("sssssi", $bio, $subjects, $course_details, $account_name, $iban, $id);
+$stmt = $conn->prepare("UPDATE tutors SET bio = ?, subjects = ?, account_name = ?, iban = ? WHERE id = ?");
+$stmt->bind_param("ssssi", $bio, $subjects, $account_name, $iban, $id);
 
 if ($stmt->execute()) {
     // Handle Topics Update
@@ -33,10 +33,21 @@ if ($stmt->execute()) {
         $conn->query("DELETE FROM tutor_topics WHERE tutor_id = $id");
         
         // Prepare insert statement
+        // Prepare insert statement
         $t_stmt = $conn->prepare("INSERT INTO tutor_topics (tutor_id, topic_id) VALUES (?, ?)");
-        foreach ($topic_ids as $tid) {
-            $t_stmt->bind_param("ii", $id, $tid);
-            $t_stmt->execute();
+        
+        if ($t_stmt) {
+            $current_tid = 0; // Container for binding
+            $t_stmt->bind_param("ii", $id, $current_tid);
+            
+            foreach ($topic_ids as $tid) {
+                $current_tid = $tid;
+                if (!$t_stmt->execute()) {
+                    error_log("Topic Insert Error (Tutor: $id, Topic: $tid): " . $t_stmt->error);
+                }
+            }
+        } else {
+             error_log("Prepare Tutor Topics Error: " . $conn->error);
         }
     }
 

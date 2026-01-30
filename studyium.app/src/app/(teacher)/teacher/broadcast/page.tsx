@@ -39,13 +39,24 @@ export default function BroadcastPage() {
 
     const handleStartBroadcast = async () => {
         if (!user) return;
-        if (!link) {
-            alert("Please enter a Google Meet link.");
-            return;
-        }
 
-        // Use the link provided by user
-        const finalLink = link;
+        // Automate Link Creation
+        let finalLink = link;
+        if (!finalLink) {
+            if ((window as any).electron) {
+                const automatedLink = await (window as any).electron.invoke('app:create-meet-link');
+                if (automatedLink) {
+                    finalLink = automatedLink;
+                    setLink(automatedLink);
+                } else {
+                    alert("Could not generate Google Meet link. Did you close the window?");
+                    return;
+                }
+            } else {
+                alert("This feature requires the Electron app.");
+                return;
+            }
+        }
 
         const participants = selectedStudents.length > 0 ? selectedStudents : students.map(s => s.id);
 
@@ -58,8 +69,16 @@ export default function BroadcastPage() {
 
         if (res.success) {
             setBroadcasting(true);
-            // setLink is already set by input
-            window.open(finalLink, '_blank');
+            // Redirect to Live Page with link
+            // Using window.location.href or router to go to live page
+            // Teacher needs to join the room too
+            // Route: /teacher/live?role=teacher&topic=...&link=...
+            // Or open in new window? User said "Directly enter".
+            // Since we use <webview> in Live page, we navigate there.
+            // window.open(finalLink) opens external browser. We want internal.
+            const url = `/teacher/live?role=teacher&topic=Live Class&link=${encodeURIComponent(finalLink)}`;
+            // Navigate
+            window.location.href = url; // Hard nav or router.push
         }
     };
 
@@ -105,35 +124,22 @@ export default function BroadcastPage() {
                     </div>
 
                     <div className="space-y-4">
-                        <div className="flex flex-col gap-2 text-left max-w-md mx-auto">
-                            <label className="text-sm font-medium">Google Meet Link</label>
-                            <div className="flex gap-2">
-                                <input
-                                    type="text"
-                                    placeholder="https://meet.google.com/..."
-                                    className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm"
-                                    value={link}
-                                    onChange={(e) => setLink(e.target.value)}
-                                />
-                                <button
-                                    onClick={() => window.open('https://meet.google.com/new', '_blank')}
-                                    className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 rounded text-xs font-bold whitespace-nowrap"
-                                    title="Create new meeting link"
-                                >
-                                    New Meet
-                                </button>
-                            </div>
-                            <p className="text-xs text-muted-foreground">Create a meeting, copy the link, and paste it here.</p>
+                        <div className="flex flex-col gap-2 text-center max-w-md mx-auto">
+                            <p className="text-sm text-muted-foreground mb-4">
+                                Click below to automatically create a Google Meet session.
+                                A google window will open - please log in if needed. The system will detect the meeting link automatically.
+                            </p>
                         </div>
 
                         {!broadcasting && (
                             <div className="flex justify-center gap-4 mt-4">
                                 <button
                                     onClick={handleStartBroadcast}
-                                    disabled={loadingStudents || !link}
-                                    className="px-8 py-4 rounded-full bg-red-600 hover:bg-red-700 text-white font-bold text-lg shadow-lg hover:shadow-xl hover:scale-105 transition-all disabled:opacity-50"
+                                    disabled={loadingStudents}
+                                    className="px-8 py-4 rounded-full bg-red-600 hover:bg-red-700 text-white font-bold text-lg shadow-lg hover:shadow-xl hover:scale-105 transition-all disabled:opacity-50 flex items-center gap-2"
                                 >
-                                    Start Broadcast
+                                    <MonitorPlay className="h-6 w-6" />
+                                    Start Broadcast (Auto-Meet)
                                 </button>
                             </div>
                         )}

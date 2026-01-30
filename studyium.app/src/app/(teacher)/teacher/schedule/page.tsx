@@ -154,7 +154,7 @@ export default function SchedulePage() {
             day_of_week: day,
             start_time: startTime,
             end_time: endTime,
-            is_live: formData.isLive,
+            is_live: formData.isLive ? 1 : 0,
             note: formData.note
         };
 

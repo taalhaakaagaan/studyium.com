@@ -336,6 +336,50 @@ ipcMain.handle('app:show-save-dialog', async (event, { defaultPath }) => {
     return { filePath };
 });
 
+ipcMain.handle('app:create-meet-link', async () => {
+    const win = new BrowserWindow({
+        width: 1024,
+        height: 768,
+        show: true,
+        webPreferences: {
+            partition: 'persist:google' // Persist login session
+        }
+    });
+
+    win.loadURL('https://meet.google.com/new');
+
+    return new Promise((resolve) => {
+        let found = false;
+
+        // Poll for URL change
+        const interval = setInterval(() => {
+            if (win.isDestroyed()) {
+                clearInterval(interval);
+                if (!found) resolve(null);
+                return;
+            }
+            try {
+                const url = win.webContents.getURL();
+                // Check for standard Meet URL pattern (e.g., https://meet.google.com/abc-defg-hij)
+                // Exclude 'new' and 'landing'
+                if (url.includes('meet.google.com/') && !url.includes('/new') && url.split('/').pop()?.match(/[a-z]{3}-[a-z]{4}-[a-z]{3}/)) {
+                    found = true;
+                    clearInterval(interval);
+                    win.close();
+                    resolve(url);
+                }
+            } catch (e) {
+                // Ignore error (window might be closing)
+            }
+        }, 1000);
+
+        win.on('closed', () => {
+            clearInterval(interval);
+            if (!found) resolve(null);
+        });
+    });
+});
+
 ipcMain.handle('app:save-file', async (event, { filePath, buffer }) => {
     try {
         await fs.promises.writeFile(filePath, Buffer.from(buffer));

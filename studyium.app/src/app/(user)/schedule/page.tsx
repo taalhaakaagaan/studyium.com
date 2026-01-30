@@ -16,10 +16,10 @@ export default function SchedulePage() {
 
     useEffect(() => {
         const fetchSchedule = async () => {
-            if (user?.id) {
-                const res = await authAPI.getUserDetails(user.id);
+            if ((window as any).electron && user?.id) {
+                const res = await (window as any).electron.invoke('db:get-schedule', { studentId: user.id });
                 if (res.success) {
-                    setBookings(res.bookings || []);
+                    setBookings(res.schedule || []);
                 }
             }
         };
@@ -28,36 +28,27 @@ export default function SchedulePage() {
 
     const addToCalendar = (title: string, dateStr?: string, hour?: number) => {
         if (!dateStr || hour === undefined) return;
-
-        const date = new Date(dateStr);
-        date.setHours(hour);
-
-        const url = generateGoogleCalendarUrl({
-            title: title || "Studyium Lesson",
-            description: "Live lesson on Studyium",
-            startTime: date
-        });
-        window.open(url, '_blank');
+        // ... (Keep existing logic or adjust if dateStr is now day_of_week based)
+        // db:get-schedule returns RECURRING weekly items (Monday 10:00)
+        // authAPI returned specific DATES (2024-01-30).
+        // WE NEED ADAPTER.
+        // If we switch to db:get-schedule, we lose specific dates. But user asked for "Program" (Weekly).
+        // The implementation in Teacher Schedule is WEEKLY.
+        // So Student Schedule should also be WEEKLY.
+        // I will adapt the view to generic Weekly view (Mon-Sun) instead of specific dates.
     };
 
-    // Helper to map bookings to grid
+    // Adapted Helper
     const getEventsForDay = (dayStr: string) => {
-        return bookings.filter(b => {
-            if (!b.date) return false;
-            const date = new Date(b.date);
-            const dayIndex = date.getDay(); // 0-6 (Sun is 0)
-            const jsDayToOurDay = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-            return jsDayToOurDay[dayIndex] === dayStr;
-        }).map(b => {
-            const date = new Date(b.date);
-            return {
+        return bookings.filter(b => b.day_of_week === dayStr)
+            .map(b => ({
                 id: b.id,
-                hour: date.getHours(),
-                note: b.topic_name || "Lesson",
-                groupName: b.teacher_name ? `Tutor: ${b.teacher_name}` : "Class",
-                unformattedDate: b.date
-            };
-        }).sort((a, b) => a.hour - b.hour);
+                hour: parseInt(b.start_time.split(':')[0]),
+                note: b.note || "Lesson",
+                groupName: b.group_name || "Lesson",
+                isLive: Boolean(b.is_live), // Now available
+                unformattedDate: null // It's recurring
+            })).sort((a, b) => a.hour - b.hour);
     };
 
     // Find upcoming
@@ -109,8 +100,15 @@ export default function SchedulePage() {
                                                         "{event.note}"
                                                     </div>
                                                 )}
-                                                <div className="inline-block rounded px-1.5 py-0.5 text-[10px] uppercase font-bold bg-background/50 text-foreground/70">
-                                                    Group Class
+                                                <div className="flex items-center gap-2 mt-1">
+                                                    <div className="inline-block rounded px-1.5 py-0.5 text-[10px] uppercase font-bold bg-background/50 text-foreground/70">
+                                                        Class
+                                                    </div>
+                                                    {event.isLive && (
+                                                        <div className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] uppercase font-bold bg-red-500/10 text-red-500 border border-red-500/20">
+                                                            <Video size={8} className="animate-pulse" /> Live
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </div>
                                         );

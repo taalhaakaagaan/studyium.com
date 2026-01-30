@@ -1,6 +1,6 @@
 {
   "name": "studyium.app",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Studyium Desktop Application",
   "author": {
     "name": "Talha Kağan Tosun",
@@ -47,29 +47,22 @@
       "target": [
         "nsis"
       ],
-      "icon": "public/icon.png"
+      "icon": "public/icon.png",
+      "extraFiles": [
+        {
+          "from": "C:/Windows/System32/vcruntime140.dll",
+          "to": "."
+        },
+        {
+          "from": "C:/Windows/System32/vcruntime140_1.dll",
+          "to": "."
+        },
+        {
+          "from": "C:/Windows/System32/msvcp140.dll",
+          "to": "."
+        }
+      ]
     },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "deleteAppDataOnUninstall": true
-    },
-    "extraFiles": [
-      {
-        "from": "C:/Windows/System32/vcruntime140.dll",
-        "to": "."
-      },
-      {
-        "from": "C:/Windows/System32/vcruntime140_1.dll",
-        "to": "."
-      },
-      {
-        "from": "C:/Windows/System32/msvcp140.dll",
-        "to": "."
-      }
-    ],
     "mac": {
       "target": "dmg",
       "icon": "public/icon.png"

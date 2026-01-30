@@ -2,29 +2,16 @@
 
 import { useEffect, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { Circle, PhoneOff, ExternalLink } from "lucide-react";
 import Script from "next/script";
-import { Mic, Video as VideoIcon, VideoOff, PhoneOff, MonitorUp, Circle, Download } from "lucide-react";
-import { cn } from "@/lib/utils";
-import Link from "next/link";
-
-interface JitsiInstance {
-    dispose: () => void;
-    executeCommand: (cmd: string, args?: any) => void;
-}
 
 function LiveRoomContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const role = searchParams.get("role") || "student";
     const topic = searchParams.get("topic") || "Live Class";
-    const roomId = searchParams.get("roomId") || "DemoRoom";
-
-    // Create unique room name: Studyium_Ticket_{ID}
-    const roomName = `Studyium_Class_${roomId}`;
-
-    const jitsiContainerRef = useRef<HTMLDivElement>(null);
-    const [jitsiApi, setJitsiApi] = useState<JitsiInstance | null>(null);
-    const [loading, setLoading] = useState(true);
+    // We expect 'link' param for Google Meet
+    const link = searchParams.get("link") || "";
 
     // Recording State
     const [recording, setRecording] = useState(false);
@@ -32,59 +19,23 @@ function LiveRoomContent() {
     const [recordedChunks, setRecordedChunks] = useState<Blob[]>([]);
 
     useEffect(() => {
-        // Load Jitsi after script is ready
-        // We use Next.js Script component below with onLoad
-        return () => {
-            if (jitsiApi) jitsiApi.dispose();
-        };
-    }, []);
-
-    const initJitsi = () => {
-        if (!jitsiContainerRef.current || !(window as any).JitsiMeetExternalAPI) return;
-
-        const domain = "meet.jit.si";
-        const options = {
-            roomName: roomName,
-            width: "100%",
-            height: "100%",
-            parentNode: jitsiContainerRef.current,
-            configOverwrite: {
-                startWithAudioMuted: true,
-                startWithVideoMuted: true,
-                prejoinPageEnabled: false,
-            },
-            interfaceConfigOverwrite: {
-                TOOLBAR_BUTTONS: [
-                    'microphone', 'camera', 'closedcaptions', 'desktop', 'fullscreen',
-                    'fodeviceselection', 'hangup', 'profile', 'chat', 'recording',
-                    'livestreaming', 'etherpad', 'sharedvideo', 'settings', 'raisehand',
-                    'videoquality', 'filmstrip', 'invite', 'feedback', 'stats', 'shortcuts',
-                    'tileview', 'videobackgroundblur', 'download', 'help', 'mute-everyone',
-                    'security'
-                ],
-            },
-            userInfo: {
-                displayName: role === 'teacher' ? "Teacher" : "Student"
-            }
-        };
-
-        const api = new (window as any).JitsiMeetExternalAPI(domain, options);
-        setJitsiApi(api);
-        setLoading(false);
-
-        api.addEventListeners({
-            videoConferenceLeft: () => handleLeave()
-        });
-    };
+        if (!link) {
+            alert("No meeting link provided.");
+            router.back();
+        }
+    }, [link]);
 
     const handleLeave = () => {
         if (recording) stopRecording();
         router.push(role === 'teacher' ? '/teacher/dashboard' : '/dashboard');
     };
 
-    // Recording Logic
+    // Recording Logic - Captures SCREEN (including the webview)
     const startRecording = async () => {
         try {
+            // Confirm with user
+            if (!confirm("Start recording this session?")) return;
+
             const stream = await navigator.mediaDevices.getDisplayMedia({
                 video: true,
                 audio: true
@@ -107,14 +58,14 @@ function LiveRoomContent() {
             setRecording(true);
         } catch (err) {
             console.error("Error starting recording:", err);
-            alert("Could not start recording. Permission denied?");
+            // Ignore if user cancelled
         }
     };
 
     const stopRecording = () => {
         if (mediaRecorder) {
             mediaRecorder.stop();
-            mediaRecorder.stream.getTracks().forEach(track => track.stop()); // Stop screen share
+            mediaRecorder.stream.getTracks().forEach(track => track.stop());
         }
         setRecording(false);
     };
@@ -128,33 +79,24 @@ function LiveRoomContent() {
         document.body.appendChild(a);
         a.style.display = "none";
         a.href = url;
-        const filename = `Studyium-Lesson-${topic}-${new Date().toISOString().slice(0, 10)}.webm`; // WebM is reliable from MediaRecorder. Can convert to MP4? Browsers usually output WebM.
+        const filename = `Studyium-Lesson-${topic}-${new Date().toISOString().slice(0, 10)}.webm`;
         a.download = filename;
         a.click();
         window.URL.revokeObjectURL(url);
 
-        // Ensure to tell user
-        alert(`Lesson saved to Downloads as ${filename}`);
-        setRecordedChunks([]); // Reset
+        alert(`Recording saved: ${filename}`);
+        setRecordedChunks([]);
     };
 
-    // Ask to download logic? 
-    // User requested: "Ask ... yes -> download". 
-    // We can show a prompt on Leave?
-    // Using manual button for now as it's cleaner.
+    // Webview component (Electron specific)
+    const WebView: any = "webview";
 
     return (
         <div className="flex flex-col h-screen bg-zinc-950 text-white">
-            {/* Script Loader */}
-            <Script
-                src="https://meet.jit.si/external_api.js"
-                onLoad={initJitsi}
-            />
-
             {/* Header */}
             <div className="h-14 border-b border-zinc-800 flex items-center justify-between px-4 bg-zinc-900">
                 <div className="flex items-center gap-4">
-                    <h1 className="font-semibold text-lg">{topic}</h1>
+                    <h1 className="font-semibold text-lg">{topic} (Google Meet)</h1>
                     <span className="text-xs px-2 py-1 bg-red-500/10 text-red-500 rounded flex items-center gap-2">
                         <div className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
                         Live
@@ -162,6 +104,15 @@ function LiveRoomContent() {
                 </div>
 
                 <div className="flex items-center gap-3">
+                    {/* Link fallback */}
+                    <button
+                        onClick={() => window.open(link, '_blank')}
+                        className="md:hidden p-2 bg-zinc-800 rounded"
+                        title="Open in Browser"
+                    >
+                        <ExternalLink size={16} />
+                    </button>
+
                     {/* Recording Control */}
                     {!recording ? (
                         <button
@@ -169,7 +120,7 @@ function LiveRoomContent() {
                             className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded text-sm transition-colors border border-zinc-700"
                         >
                             <Circle size={14} className="fill-red-500 text-red-500" />
-                            Record Lesson
+                            Record (Screen)
                         </button>
                     ) : (
                         <button
@@ -177,7 +128,7 @@ function LiveRoomContent() {
                             className="flex items-center gap-2 px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded text-sm transition-colors animate-pulse"
                         >
                             <Circle size={14} className="fill-white text-white" />
-                            Stop & Save ({recordedChunks.length} chunks)
+                            Stop Rec
                         </button>
                     )}
 
@@ -191,14 +142,16 @@ function LiveRoomContent() {
                 </div>
             </div>
 
-            {/* Jitsi Stage */}
-            <div className="flex-1 relative bg-black">
-                {loading && (
-                    <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="animate-spin w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full" />
-                    </div>
+            {/* Google Meet Webview */}
+            <div className="flex-1 relative bg-white">
+                {link && (
+                    <WebView
+                        src={link}
+                        className="w-full h-full"
+                        useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                        allowpopups="true"
+                    />
                 )}
-                <div ref={jitsiContainerRef} className="w-full h-full" />
             </div>
         </div>
     );

@@ -39,26 +39,27 @@ export default function BroadcastPage() {
 
     const handleStartBroadcast = async () => {
         if (!user) return;
+        if (!link) {
+            alert("Please enter a Google Meet link.");
+            return;
+        }
 
-        const roomName = `Studyium-Live-${user.id}-${Date.now().toString().slice(-4)}`;
-        const generatedLink = `https://meet.jit.si/${roomName}`;
+        // Use the link provided by user
+        const finalLink = link;
 
-        // Select all if none selected? Or force selection?
-        // Let's assume if none selected, it's public/all? Or require 1.
-        // User implied selection.
         const participants = selectedStudents.length > 0 ? selectedStudents : students.map(s => s.id);
 
         const res = await chatAPI.createLiveSession({
             teacherId: user.id,
             topic: "Live Class Session",
             participants,
-            link: generatedLink
+            link: finalLink
         });
 
         if (res.success) {
             setBroadcasting(true);
-            setLink(generatedLink);
-            window.open(generatedLink, '_blank');
+            // setLink is already set by input
+            window.open(finalLink, '_blank');
         }
     };
 
@@ -103,17 +104,40 @@ export default function BroadcastPage() {
                         </p>
                     </div>
 
-                    {!broadcasting && (
-                        <div className="flex justify-center gap-4">
-                            <button
-                                onClick={handleStartBroadcast}
-                                disabled={loadingStudents}
-                                className="px-8 py-4 rounded-full bg-red-600 hover:bg-red-700 text-white font-bold text-lg shadow-lg hover:shadow-xl hover:scale-105 transition-all disabled:opacity-50"
-                            >
-                                Start Broadcast
-                            </button>
+                    <div className="space-y-4">
+                        <div className="flex flex-col gap-2 text-left max-w-md mx-auto">
+                            <label className="text-sm font-medium">Google Meet Link</label>
+                            <div className="flex gap-2">
+                                <input
+                                    type="text"
+                                    placeholder="https://meet.google.com/..."
+                                    className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm"
+                                    value={link}
+                                    onChange={(e) => setLink(e.target.value)}
+                                />
+                                <button
+                                    onClick={() => window.open('https://meet.google.com/new', '_blank')}
+                                    className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 rounded text-xs font-bold whitespace-nowrap"
+                                    title="Create new meeting link"
+                                >
+                                    New Meet
+                                </button>
+                            </div>
+                            <p className="text-xs text-muted-foreground">Create a meeting, copy the link, and paste it here.</p>
                         </div>
-                    )}
+
+                        {!broadcasting && (
+                            <div className="flex justify-center gap-4 mt-4">
+                                <button
+                                    onClick={handleStartBroadcast}
+                                    disabled={loadingStudents || !link}
+                                    className="px-8 py-4 rounded-full bg-red-600 hover:bg-red-700 text-white font-bold text-lg shadow-lg hover:shadow-xl hover:scale-105 transition-all disabled:opacity-50"
+                                >
+                                    Start Broadcast
+                                </button>
+                            </div>
+                        )}
+                    </div>
 
                     {broadcasting && (
                         <div className="flex flex-col items-center gap-4">

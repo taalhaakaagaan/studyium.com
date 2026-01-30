@@ -121,7 +121,8 @@ function createWindow() {
         webPreferences: {
             nodeIntegration: true,
             contextIsolation: false,
-            webSecurity: false, // Allow local file fetching if needed, but risky. 
+            webSecurity: false,
+            webviewTag: true // Enable <webview> for Google Meet
         },
         autoHideMenuBar: true,
         icon: path.join(__dirname, '../public/favicon.ico')

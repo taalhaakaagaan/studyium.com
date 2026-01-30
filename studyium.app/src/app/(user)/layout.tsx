@@ -6,7 +6,8 @@ import {
     Calendar,
     MessageSquare,
     LogOut,
-    Hash
+    Hash,
+    FileVideo
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LogoutButton } from "@/components/logout-button";
@@ -17,6 +18,7 @@ const sidebarItems = [
     { icon: Calendar, label: "My Schedule", href: "/schedule" },
     { icon: Hash, label: "Groups", href: "/groups" },
     { icon: MessageSquare, label: "Messages", href: "/messages" },
+    { icon: FileVideo, label: "Recordings", href: "/recordings" },
 ];
 
 export default function UserLayout({

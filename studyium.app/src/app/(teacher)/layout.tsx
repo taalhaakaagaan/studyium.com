@@ -7,7 +7,8 @@ import {
     MessageSquare,
     Radio,
     LogOut,
-    Video
+    Video,
+    FileVideo
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LogoutButton } from "@/components/logout-button";
@@ -21,6 +22,7 @@ const sidebarItems = [
     { icon: Users, label: "Groups", href: "/teacher/groups" },
     // Live Class removed as per request
     { icon: Radio, label: "Broadcast", href: "/teacher/broadcast" },
+    { icon: FileVideo, label: "Recordings", href: "/teacher/recordings" },
     { icon: Users, label: "Settings", href: "/teacher/settings" },
 ];
 

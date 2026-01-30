@@ -295,6 +295,37 @@ ipcMain.handle('db:delete-schedule-item', async (event, id) => {
 });
 
 // 10. FILE SYSTEM (Keep Local)
+ipcMain.handle('app:list-recordings', async () => {
+    const dir = app.getPath('downloads');
+    try {
+        const files = await fs.promises.readdir(dir);
+        const recordings = [];
+        for (const file of files) {
+            // Check for WebM or MP4 files created by our app
+            if (file.startsWith('Studyium-Lesson-') && (file.endsWith('.webm') || file.endsWith('.mp4'))) {
+                const fullPath = path.join(dir, file);
+                const stats = await fs.promises.stat(fullPath);
+                recordings.push({
+                    name: file,
+                    path: fullPath,
+                    created: stats.birthtime,
+                    size: stats.size
+                });
+            }
+        }
+        // Sort by recent
+        recordings.sort((a, b) => b.created - a.created);
+        return { success: true, recordings };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('app:open-folder', async (event, filePath) => {
+    shell.showItemInFolder(filePath);
+    return { success: true };
+});
+
 ipcMain.handle('app:show-save-dialog', async (event, { defaultPath }) => {
     const { filePath } = await dialog.showSaveDialog({
         title: 'Save Recording',

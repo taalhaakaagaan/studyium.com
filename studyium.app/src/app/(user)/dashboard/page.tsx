@@ -108,7 +108,7 @@ export default function UserDashboard() {
                             </p>
                         </div>
                         <a
-                            href={`/teacher/live?role=student&topic=${encodeURIComponent(liveSession.note || "Lesson")}`}
+                            href={`/teacher/live?role=student&topic=${encodeURIComponent(liveSession.note || "Lesson")}&roomId=${liveSession.teacher_id || liveSession.tutor_id}`}
                             className="bg-white text-indigo-600 hover:bg-white/90 px-6 py-3 rounded-lg font-bold shadow-sm transition-transform hover:scale-105 active:scale-95 flex items-center gap-2"
                         >
                             <Video className="h-5 w-5" />

@@ -115,6 +115,7 @@ export function UserDetailClient() {
             </div>
 
             {/* Student Comments Section */}
+            {/* Student Comments Section */}
             {!isTeacher && (
                 <div className="border rounded-xl shadow bg-card">
                     <div className="p-6 border-b flex items-center justify-between">
@@ -123,8 +124,10 @@ export function UserDetailClient() {
                             Reviews & Comments
                         </h3>
                     </div>
+                    {/* ... (Existing comments code) ... */}
                     <div className="divide-y">
                         {comments.length > 0 ? comments.map((comment: any, idx: number) => (
+                            // ... (existing)
                             <div key={idx} className="p-6 hover:bg-muted/50 transition-colors">
                                 <div className="flex justify-between items-start mb-2">
                                     <span className="font-medium">{comment.student_name || comment.tutor_name || comment.subject || "Review"}</span>
@@ -150,6 +153,75 @@ export function UserDetailClient() {
                     </div>
                 </div>
             )}
+
+            {/* Weekly Schedule Section (Admin View) */}
+            <WeeklyScheduleView user={user} />
+        </div>
+    );
+}
+
+function WeeklyScheduleView({ user }: { user: any }) {
+    const [schedule, setSchedule] = useState<any[]>([]);
+
+    useEffect(() => {
+        const loadSchedule = async () => {
+            if ((window as any).electron) {
+                const res = await (window as any).electron.invoke('db:get-schedule', {
+                    // Pass correct ID based on role
+                    teacherId: (user.role === 'teacher' || user.role === 'tutor') ? user.id : undefined,
+                    studentId: (user.role === 'student') ? user.id : undefined
+                });
+                if (res.success) {
+                    setSchedule(res.schedule);
+                }
+            }
+        };
+        loadSchedule();
+    }, [user]);
+
+    if (!schedule.length) return null;
+
+    return (
+        <div className="border rounded-xl shadow bg-card">
+            <div className="p-6 border-b flex items-center justify-between">
+                <h3 className="font-semibold text-lg flex items-center gap-2">
+                    <Calendar className="h-5 w-5" />
+                    Weekly Schedule
+                </h3>
+            </div>
+            <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                    <thead className="bg-muted/50 text-muted-foreground">
+                        <tr>
+                            <th className="px-6 py-3 font-medium">Day</th>
+                            <th className="px-6 py-3 font-medium">Time</th>
+                            <th className="px-6 py-3 font-medium">Details</th>
+                            <th className="px-6 py-3 font-medium">Type</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                        {schedule.map((item: any) => (
+                            <tr key={item.id} className="hover:bg-muted/50">
+                                <td className="px-6 py-4 font-medium">{item.day_of_week}</td>
+                                <td className="px-6 py-4">{item.start_time?.slice(0, 5)} - {item.end_time?.slice(0, 5)}</td>
+                                <td className="px-6 py-4">
+                                    <div className="font-medium">{item.group_name || item.student_name || "Private"}</div>
+                                    <div className="text-xs text-muted-foreground">{item.note}</div>
+                                </td>
+                                <td className="px-6 py-4">
+                                    {item.is_live ? (
+                                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                                            LIVE
+                                        </span>
+                                    ) : (
+                                        <span className="text-muted-foreground">Normal</span>
+                                    )}
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
         </div>
     );
 }

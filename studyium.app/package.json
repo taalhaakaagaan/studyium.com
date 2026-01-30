@@ -1,6 +1,12 @@
 {
   "name": "studyium.app",
-  "version": "0.3.0",
+  "version": "0.4.0",
+  "description": "Studyium Desktop Application",
+  "author": {
+    "name": "Talha Kağan Tosun",
+    "email": "talhazor1@gmail.com"
+  },
+  "homepage": "https://github.com/taalhaakaagaan/studyium.com",
   "private": true,
   "main": "main/main.js",
   "scripts": {

@@ -1,0 +1,10 @@
+const { app, BrowserWindow } = require('electron');
+
+// Helper to attach to existing process is hard, but we can try to send a signal if enabled.
+// Actually, since we are in dev mode, we can just edit main.js temporarily to force a reload on start, 
+// OR simpler: just ask the user to press Ctrl+R. 
+
+// BUT, since we are agents:
+console.log("To force reload, we can restart the electron process again, which we already did.");
+console.log("If the error persists, it means the bundle IS actually broken despite the code looking correct.");
+console.log("Let's re-verify lib/auth.ts compilation.");

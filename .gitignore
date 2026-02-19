@@ -1,0 +1,11 @@
+node_modules/
+dist/
+app/.next/
+app/out/
+*.log
+.env
+.env.*
+trash_can/
+studyium.app/
+studyium.web/
+web/

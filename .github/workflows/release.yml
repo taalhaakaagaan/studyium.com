@@ -41,6 +41,8 @@ jobs:
         with:
           files: |
             app/dist/*.AppImage
+            app/dist/*.yml
+            app/dist/*.blockmap
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -76,5 +78,7 @@ jobs:
         with:
           files: |
             app/dist/*.exe
+            app/dist/*.yml
+            app/dist/*.blockmap
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
